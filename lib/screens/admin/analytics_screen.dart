@@ -4,8 +4,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../components/glass_card.dart';
 import '../../components/status_pill.dart';
 import '../../components/global_glass_scaffold.dart';
-import '../../core/api/api_client.dart';
-import '../../core/api/api_endpoints.dart';
+import '../../core/services/analytics_service.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -15,21 +14,77 @@ class AnalyticsScreen extends StatefulWidget {
 }
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
+  bool _isLoading = true;
   bool _isLoadingHeatmap = true;
-  List<dynamic> _heatmapData = [];
+  List<Map<String, dynamic>> _heatmapData = [];
+  List<Map<String, dynamic>> _weeklyData = [];
+  List<Map<String, dynamic>> _ratingSummary = [];
+  List<Map<String, dynamic>> _predictions = [];
+  int _totalMeals = 0;
+  double? _avgRating;
+  final List<DateTime> _days = [];
 
   @override
   void initState() {
     super.initState();
-    _fetchHeatmap();
+    _days.addAll(_buildWeek());
+    _loadAnalytics();
   }
 
-  Future<void> _fetchHeatmap() async {
+  List<DateTime> _buildWeek() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return List<DateTime>.generate(7, (i) => today.subtract(Duration(days: 6 - i)));
+  }
+
+  String _dateKey(DateTime date) {
+    final y = date.year.toString().padLeft(4, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
+  String _dayLabel(DateTime date) {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return days[date.weekday - 1];
+  }
+
+  String _formatCompactNumber(int value) {
+    if (value >= 1000) {
+      final compact = (value / 1000).toStringAsFixed(1);
+      return '${compact}K';
+    }
+    return value.toString();
+  }
+
+  String _formatMealSlot(String slot) {
+    switch (slot) {
+      case 'BREAKFAST':
+        return 'Breakfast';
+      case 'LUNCH':
+        return 'Lunch';
+      case 'SNACKS':
+        return 'Snacks';
+      case 'DINNER':
+        return 'Dinner';
+      default:
+        return slot;
+    }
+  }
+
+  Future<void> _loadAnalytics() async {
+    setState(() {
+      _isLoading = true;
+      _isLoadingHeatmap = true;
+    });
+
+    final todayKey = _dateKey(DateTime.now());
+
     try {
-      final res = await api.get(kAnalyticsHeatmap);
+      final heatmap = await analyticsService.getHeatmap(date: todayKey);
       if (mounted) {
         setState(() {
-          _heatmapData = res['data']?['heatmap'] ?? [];
+          _heatmapData = heatmap;
           _isLoadingHeatmap = false;
         });
       }
@@ -38,29 +93,72 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         setState(() => _isLoadingHeatmap = false);
       }
     }
+
+    try {
+      final weeklyData = <Map<String, dynamic>>[];
+      int totalMeals = 0;
+
+      for (final date in _days) {
+        final summary = await analyticsService.getFootfallSummary(date: _dateKey(date));
+        final counts = {
+          'BREAKFAST': 0,
+          'LUNCH': 0,
+          'DINNER': 0,
+          'SNACKS': 0,
+        };
+        for (final item in summary) {
+          final slot = item['mealSlot'] as String?;
+          final count = (item['count'] as num?)?.toInt() ?? 0;
+          if (slot != null) counts[slot] = count;
+        }
+
+        totalMeals += counts.values.fold<int>(0, (sum, value) => sum + value);
+
+        weeklyData.add({
+          'day': _dayLabel(date),
+          'breakfast': counts['BREAKFAST'] ?? 0,
+          'lunch': counts['LUNCH'] ?? 0,
+          'dinner': counts['DINNER'] ?? 0,
+        });
+      }
+
+      final ratings = await analyticsService.getRatingSummary(date: todayKey);
+      final predictions = await analyticsService.getPredictions(days: 7, start: todayKey);
+      double totalRating = 0;
+      int ratingCount = 0;
+      for (final item in ratings) {
+        final avg = (item['avgRating'] as num?)?.toDouble();
+        final count = (item['count'] as num?)?.toInt() ?? 0;
+        if (avg != null && count > 0) {
+          totalRating += avg * count;
+          ratingCount += count;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _weeklyData = weeklyData;
+          _totalMeals = totalMeals;
+          _ratingSummary = ratings;
+          _predictions = predictions;
+          _avgRating = ratingCount > 0 ? totalRating / ratingCount : null;
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
-
-  final List<Map<String, dynamic>> _weeklyData = [
-    { 'day': 'Mon', 'breakfast': 450, 'lunch': 780, 'dinner': 620 },
-    { 'day': 'Tue', 'breakfast': 420, 'lunch': 820, 'dinner': 580 },
-    { 'day': 'Wed', 'breakfast': 480, 'lunch': 760, 'dinner': 640 },
-    { 'day': 'Thu', 'breakfast': 460, 'lunch': 800, 'dinner': 590 },
-    { 'day': 'Fri', 'breakfast': 490, 'lunch': 850, 'dinner': 670 },
-    { 'day': 'Sat', 'breakfast': 380, 'lunch': 720, 'dinner': 550 },
-    { 'day': 'Sun', 'breakfast': 350, 'lunch': 680, 'dinner': 520 },
-  ];
-
-  final List<Map<String, dynamic>> _popularDishes = [
-    { 'name': 'Paneer Butter Masala', 'count': 342, 'trend': 'up', 'percentage': 15 },
-    { 'name': 'Dal Makhani', 'count': 298, 'trend': 'up', 'percentage': 8 },
-    { 'name': 'Biryani', 'count': 276, 'trend': 'down', 'percentage': 5 },
-    { 'name': 'Dosa', 'count': 245, 'trend': 'up', 'percentage': 12 },
-    { 'name': 'Chole Bhature', 'count': 218, 'trend': 'down', 'percentage': 3 },
-  ];
 
   @override
   Widget build(BuildContext context) {
-    int maxValue = _weeklyData.expand((d) => [d['breakfast'] as int, d['lunch'] as int, d['dinner'] as int]).reduce((a, b) => a > b ? a : b);
+    final maxValue = _weeklyData.isEmpty
+      ? 1
+      : _weeklyData
+        .expand((d) => [d['breakfast'] as int, d['lunch'] as int, d['dinner'] as int])
+        .reduce((a, b) => a > b ? a : b);
 
     return GlobalGlassScaffold(
       child: SafeArea(
@@ -133,13 +231,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                             children: [
                               const Text('TOTAL MEALS', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: Color(0xFF334155), letterSpacing: 1)),
                               const SizedBox(height: 4),
-                              const Text('12.4K', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w300, color: Color(0xFF0F172A), letterSpacing: -0.5)),
+                              Text(_formatCompactNumber(_totalMeals), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w300, color: Color(0xFF0F172A), letterSpacing: -0.5)),
                               const SizedBox(height: 4),
                               Row(
                                 children: const [
-                                  Icon(LucideIcons.trendingUp, size: 12, color: Color(0xFF059669)),
+                                  Icon(LucideIcons.calendar, size: 12, color: Color(0xFF64748B)),
                                   SizedBox(width: 4),
-                                  Text('+8%', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF059669))),
+                                  Text('Last 7 days', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF64748B))),
                                 ],
                               ),
                             ],
@@ -155,13 +253,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                             children: [
                               const Text('AVG RATING', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: Color(0xFF334155), letterSpacing: 1)),
                               const SizedBox(height: 4),
-                              const Text('4.3', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w300, color: Color(0xFF0F172A), letterSpacing: -0.5)),
+                              Text(
+                                _avgRating == null ? 'N/A' : _avgRating!.toStringAsFixed(1),
+                                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w300, color: Color(0xFF0F172A), letterSpacing: -0.5),
+                              ),
                               const SizedBox(height: 4),
                               Row(
                                 children: const [
-                                  Icon(LucideIcons.trendingUp, size: 12, color: Color(0xFF059669)),
+                                  Icon(LucideIcons.messageSquare, size: 12, color: Color(0xFF64748B)),
                                   SizedBox(width: 4),
-                                  Text('+0.2', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF059669))),
+                                  Text('Today', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF64748B))),
                                 ],
                               ),
                             ],
@@ -177,13 +278,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                             children: [
                               const Text('WASTE', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: Color(0xFF334155), letterSpacing: 1)),
                               const SizedBox(height: 4),
-                              const Text('8.2%', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w300, color: Color(0xFF0F172A), letterSpacing: -0.5)),
+                              const Text('N/A', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w300, color: Color(0xFF0F172A), letterSpacing: -0.5)),
                               const SizedBox(height: 4),
                               Row(
                                 children: const [
-                                  Icon(LucideIcons.trendingDown, size: 12, color: Color(0xFF059669)),
+                                  Icon(LucideIcons.info, size: 12, color: Color(0xFF94A3B8)),
                                   SizedBox(width: 4),
-                                  Text('-2%', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF059669))),
+                                  Text('Not tracked', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF94A3B8))),
                                 ],
                               ),
                             ],
@@ -223,69 +324,74 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                             ],
                           ),
                           const SizedBox(height: 16),
-                          SizedBox(
-                            height: 160,
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: _weeklyData.map((data) {
-                                return Expanded(
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      SizedBox(
-                                        width: 32,
-                                        child: Text(data['day'], style: const TextStyle(fontSize: 9, color: Color(0xFF334155))),
-                                      ),
-                                      Expanded(
-                                        child: Row(
-                                          crossAxisAlignment: CrossAxisAlignment.end,
-                                          children: [
-                                            Expanded(
-                                              child: FractionallySizedBox(
-                                                heightFactor: (data['breakfast'] / maxValue).clamp(0.05, 1.0),
-                                                child: Container(
-                                                  decoration: BoxDecoration(
-                                                    color: const Color(0xFF60A5FA).withOpacity(0.30),
-                                                    borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 1),
-                                            Expanded(
-                                              child: FractionallySizedBox(
-                                                heightFactor: (data['lunch'] / maxValue).clamp(0.05, 1.0),
-                                                child: Container(
-                                                  decoration: BoxDecoration(
-                                                    color: const Color(0xFF34D399).withOpacity(0.30),
-                                                    borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 1),
-                                            Expanded(
-                                              child: FractionallySizedBox(
-                                                heightFactor: (data['dinner'] / maxValue).clamp(0.05, 1.0),
-                                                child: Container(
-                                                  decoration: BoxDecoration(
-                                                    color: const Color(0xFFFBBF24).withOpacity(0.30),
-                                                    borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
+                          if (_isLoading)
+                            const SizedBox(height: 160, child: Center(child: CircularProgressIndicator()))
+                          else if (_weeklyData.isEmpty)
+                            const SizedBox(height: 160, child: Center(child: Text('No attendance data', style: TextStyle(color: Color(0xFF64748B)))))
+                          else
+                            SizedBox(
+                              height: 160,
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: _weeklyData.map((data) {
+                                  return Expanded(
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        SizedBox(
+                                          width: 32,
+                                          child: Text(data['day'], style: const TextStyle(fontSize: 9, color: Color(0xFF334155))),
                                         ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                    ],
-                                  ),
-                                );
-                              }).toList(),
+                                        Expanded(
+                                          child: Row(
+                                            crossAxisAlignment: CrossAxisAlignment.end,
+                                            children: [
+                                              Expanded(
+                                                child: FractionallySizedBox(
+                                                  heightFactor: (data['breakfast'] / maxValue).clamp(0.05, 1.0),
+                                                  child: Container(
+                                                    decoration: BoxDecoration(
+                                                      color: const Color(0xFF60A5FA).withOpacity(0.30),
+                                                      borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 1),
+                                              Expanded(
+                                                child: FractionallySizedBox(
+                                                  heightFactor: (data['lunch'] / maxValue).clamp(0.05, 1.0),
+                                                  child: Container(
+                                                    decoration: BoxDecoration(
+                                                      color: const Color(0xFF34D399).withOpacity(0.30),
+                                                      borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 1),
+                                              Expanded(
+                                                child: FractionallySizedBox(
+                                                  heightFactor: (data['dinner'] / maxValue).clamp(0.05, 1.0),
+                                                  child: Container(
+                                                    decoration: BoxDecoration(
+                                                      color: const Color(0xFFFBBF24).withOpacity(0.30),
+                                                      borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ),
@@ -299,80 +405,92 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Popular Dishes', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
+                          const Text('Ratings Summary', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
                           const SizedBox(height: 16),
-                          Column(
-                            children: _popularDishes.asMap().entries.map((entry) {
-                              int index = entry.key;
-                              var dish = entry.value;
-                              bool isUp = dish['trend'] == 'up';
-                              
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 24,
-                                      height: 24,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: Colors.white.withOpacity(0.70),
-                                        border: Border.all(color: Colors.white.withOpacity(0.80), width: 0.5),
-                                        boxShadow: [
-                                          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2)),
-                                        ],
-                                      ),
-                                      alignment: Alignment.center,
-                                      child: Text('${index + 1}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(dish['name'], style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
-                                          const SizedBox(height: 4),
-                                          Container(
-                                            height: 6,
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFFE2E8F0).withOpacity(0.6),
-                                              borderRadius: BorderRadius.circular(3),
-                                            ),
-                                            child: FractionallySizedBox(
-                                              alignment: Alignment.centerLeft,
-                                              widthFactor: dish['count'] / _popularDishes[0]['count'],
-                                              child: Container(
-                                                decoration: BoxDecoration(
-                                                  gradient: const LinearGradient(
-                                                    colors: [Color(0xFF60A5FA), Color(0xFF34D399)],
-                                                  ),
-                                                  borderRadius: BorderRadius.circular(3),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.end,
-                                      children: [
-                                        Text('${dish['count']}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
-                                        Row(
+                          if (_ratingSummary.isEmpty)
+                            const Text('No ratings yet', style: TextStyle(fontSize: 12, color: Color(0xFF64748B)))
+                          else
+                            Column(
+                              children: _ratingSummary.map((summary) {
+                                final mealSlot = _formatMealSlot(summary['mealSlot'] as String);
+                                final avg = (summary['avgRating'] as num?)?.toDouble();
+                                final count = (summary['count'] as num?)?.toInt() ?? 0;
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            Icon(isUp ? LucideIcons.trendingUp : LucideIcons.trendingDown, size: 12, color: isUp ? const Color(0xFF059669) : const Color(0xFFE11D48)),
-                                            const SizedBox(width: 2),
-                                            Text('${dish['percentage']}%', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: isUp ? const Color(0xFF059669) : const Color(0xFFE11D48))),
+                                            Text(mealSlot, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
+                                            const SizedBox(height: 4),
+                                            Text('$count ratings', style: const TextStyle(fontSize: 10, color: Color(0xFF64748B))),
                                           ],
                                         ),
+                                      ),
+                                      Text(
+                                        avg == null ? 'N/A' : avg.toStringAsFixed(1),
+                                  const SizedBox(height: 16),
+
+                                  GlassCard(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Text('Forecast (Next 7 Days)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
+                                        const SizedBox(height: 12),
+                                        if (_predictions.isEmpty)
+                                          const Text('No predictions available', style: TextStyle(fontSize: 12, color: Color(0xFF64748B)))
+                                        else
+                                          Column(
+                                            children: _groupPredictions(_predictions).entries.map((entry) {
+                                              final date = entry.key;
+                                              final rows = entry.value;
+                                              return Padding(
+                                                padding: const EdgeInsets.only(bottom: 12),
+                                                child: GlassCard(
+                                                  padding: const EdgeInsets.all(12),
+                                                  child: Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    children: [
+                                                      Text(date, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
+                                                      const SizedBox(height: 8),
+                                                      Column(
+                                                        children: rows.map((row) {
+                                                          return Padding(
+                                                            padding: const EdgeInsets.only(bottom: 6),
+                                                            child: Row(
+                                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                              children: [
+                                                                Text(_formatMealSlot(row['mealSlot'] as String), style: const TextStyle(fontSize: 11, color: Color(0xFF475569))),
+                                                                Text('${row['predictedCount']}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
+                                                              ],
+                                                            ),
+                                                          );
+                                                        }).toList(),
+                                                      ),
+                                                      const SizedBox(height: 6),
+                                                      Text(
+                                                        rows.first['scenario'] as String,
+                                                        style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              );
+                                            }).toList(),
+                                          ),
                                       ],
                                     ),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
-                          ),
+                                  ),
+                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
+                            ),
                         ],
                       ),
                     ),
@@ -553,5 +671,33 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         Text(time, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
       ],
     );
+  }
+
+  Map<String, List<Map<String, dynamic>>> _groupPredictions(List<Map<String, dynamic>> items) {
+    final grouped = <String, List<Map<String, dynamic>>>{};
+    for (final item in items) {
+      final date = item['date'] as String? ?? 'Unknown';
+      grouped.putIfAbsent(date, () => []);
+      grouped[date]!.add(item);
+    }
+    for (final entry in grouped.entries) {
+      entry.value.sort((a, b) => _mealOrder(a['mealSlot'] as String).compareTo(_mealOrder(b['mealSlot'] as String)));
+    }
+    return grouped;
+  }
+
+  int _mealOrder(String slot) {
+    switch (slot) {
+      case 'BREAKFAST':
+        return 0;
+      case 'LUNCH':
+        return 1;
+      case 'SNACKS':
+        return 2;
+      case 'DINNER':
+        return 3;
+      default:
+        return 4;
+    }
   }
 }

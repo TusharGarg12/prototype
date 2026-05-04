@@ -6,8 +6,7 @@ import '../../components/glass_card.dart';
 import '../../components/status_pill.dart';
 import '../../components/global_glass_scaffold.dart';
 import '../../core/services/menu_service.dart';
-import '../../core/api/api_client.dart';
-import '../../core/api/api_endpoints.dart';
+import '../../core/services/analytics_service.dart';
 
 class KitchenDisplayScreen extends StatefulWidget {
   final String userRole;
@@ -22,6 +21,8 @@ class _KitchenDisplayScreenState extends State<KitchenDisplayScreen> {
   bool _showLogoutConfirm = false;
   bool _isLoading = true;
   Timer? _refreshTimer;
+  DateTime? _lastUpdated;
+  String _activeSlotLabel = 'Current meal';
 
   List<Map<String, dynamic>> _dishes = [];
   int currentOccupancy = 0;
@@ -42,33 +43,118 @@ class _KitchenDisplayScreenState extends State<KitchenDisplayScreen> {
 
   Future<void> _fetchLiveKdsData() async {
     try {
-      // 1. Fetch menu and map to _dishes dict
       final menus = await menuService.getTodayMenu();
-      if (menus.isNotEmpty) {
-        // Fallback or find active meal based on time, using index 0 for simplicity right now
-        final activeMenu = menus.first;
-        final List<Map<String, dynamic>> newDishes = [];
-        for (var dish in activeMenu.dishes) {
-            newDishes.add({
-              'name': dish.name, 
-              'quantity': 150, 
-              'served': 0, 
-              'status': 'serving' 
-            });
+      if (menus.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _dishes = [];
+            _isLoading = false;
+            _lastUpdated = DateTime.now();
+          });
         }
-        _dishes = newDishes.isNotEmpty ? newDishes : []; // Keep logic simple
+        return;
       }
-      
-      // 2. Fetch footfall api
-      final footfallData = await api.get(kFootfall);
+      final activeSlot = _currentMealSlot();
+      final activeMenu = menus.firstWhere(
+        (menu) => menu.mealSlot == activeSlot,
+        orElse: () => menus.first,
+      );
+
+      int activeCount = 0;
+      int maxCount = 0;
+      try {
+        final today = _formatDate(DateTime.now());
+        final footfallSummary = await analyticsService.getFootfallSummary(date: today);
+        activeCount = _countForSlot(footfallSummary, activeSlot);
+        maxCount = _maxCount(footfallSummary);
+      } catch (_) {
+        activeCount = 0;
+        maxCount = 0;
+      }
+
+      final dishCount = activeMenu.dishes.length;
+      final perDishServed = dishCount == 0 ? 0 : (activeCount / dishCount).floor();
+      final List<Map<String, dynamic>> newDishes = activeMenu.dishes.map((dish) {
+        final quantity = 200;
+        final served = perDishServed.clamp(0, quantity);
+        final remainingRatio = (quantity - served) / quantity;
+        final status = _statusFromRemaining(remainingRatio);
+        return {
+          'name': dish.name,
+          'quantity': quantity,
+          'served': served,
+          'status': status,
+        };
+      }).toList();
+
       setState(() {
-        currentOccupancy = footfallData['currentOccupancy'] ?? 0;
-        peakOccupancy = footfallData['peakOccupancy'] ?? 500;
+        _dishes = newDishes;
+        currentOccupancy = activeCount;
+        peakOccupancy = maxCount > 0 ? maxCount : activeCount;
+        _activeSlotLabel = _mealSlotLabel(activeSlot);
+        _lastUpdated = DateTime.now();
         _isLoading = false;
       });
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  String _currentMealSlot() {
+    final now = DateTime.now();
+    final hour = now.hour;
+    if (hour >= 7 && hour < 10) return 'BREAKFAST';
+    if (hour >= 12 && hour < 15) return 'LUNCH';
+    if (hour >= 16 && hour < 18) return 'SNACKS';
+    if (hour >= 19 && hour < 22) return 'DINNER';
+    return 'LUNCH';
+  }
+
+  String _mealSlotLabel(String slot) {
+    switch (slot) {
+      case 'BREAKFAST':
+        return 'Breakfast';
+      case 'LUNCH':
+        return 'Lunch';
+      case 'SNACKS':
+        return 'Snacks';
+      case 'DINNER':
+        return 'Dinner';
+      default:
+        return slot;
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    final y = date.year.toString().padLeft(4, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
+  int _countForSlot(List<Map<String, dynamic>> summary, String slot) {
+    for (final item in summary) {
+      if (item['mealSlot'] == slot) {
+        return (item['count'] as num?)?.toInt() ?? 0;
+      }
+    }
+    return 0;
+  }
+
+  int _maxCount(List<Map<String, dynamic>> summary) {
+    int maxCount = 0;
+    for (final item in summary) {
+      final count = (item['count'] as num?)?.toInt() ?? 0;
+      if (count > maxCount) maxCount = count;
+    }
+    return maxCount;
+  }
+
+  String _statusFromRemaining(double remainingRatio) {
+    if (remainingRatio <= 0.05) return 'out';
+    if (remainingRatio <= 0.2) return 'delayed';
+    if (remainingRatio <= 0.45) return 'ready';
+    return 'serving';
   }
 
   @override
@@ -168,6 +254,8 @@ class _KitchenDisplayScreenState extends State<KitchenDisplayScreen> {
                                     const Text('Current Crowd', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
                                     const SizedBox(height: 4),
                                     Text('$currentOccupancy', style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w300, color: Color(0xFF0F172A), letterSpacing: -0.5)),
+                                    const SizedBox(height: 4),
+                                    Text(_activeSlotLabel, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
                                   ],
                                 ),
                               ],
@@ -178,6 +266,11 @@ class _KitchenDisplayScreenState extends State<KitchenDisplayScreen> {
                                 const Text('Peak Today', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
                                 const SizedBox(height: 4),
                                 Text('$peakOccupancy', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w500, color: Color(0xFF0F172A))),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _lastUpdated == null ? 'Updating...' : 'Updated ${_lastUpdated!.hour.toString().padLeft(2, '0')}:${_lastUpdated!.minute.toString().padLeft(2, '0')}',
+                                  style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+                                ),
                               ],
                             ),
                           ],
@@ -186,105 +279,113 @@ class _KitchenDisplayScreenState extends State<KitchenDisplayScreen> {
                     ],
                   ),
                 ),
-                
-                Expanded(
-                  child: GridView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
-                      childAspectRatio: 1.1,
+                if (_isLoading)
+                  const Expanded(child: Center(child: CircularProgressIndicator()))
+                else if (_dishes.isEmpty)
+                  const Expanded(
+                    child: Center(
+                      child: Text('No menu published for this meal slot', style: TextStyle(color: Color(0xFF64748B))),
                     ),
-                    itemCount: _dishes.length,
-                    itemBuilder: (context, index) {
-                      final dish = _dishes[index];
-                      final percentage = (dish['served'] / dish['quantity']);
-                      final status = dish['status'] as String;
-                      
-                      GlassTint tint;
-                      StatusVariant variant;
-                      String label;
-                      Color progressColor;
-                      String subtitle;
-                      
-                      switch (status) {
-                        case 'serving':
-                          tint = GlassTint.success;
-                          variant = StatusVariant.success;
-                          label = 'SERVING';
-                          progressColor = const Color(0xFF10B981);
-                          subtitle = '${((1 - percentage) * 100).toStringAsFixed(0)}% remaining';
-                          break;
-                        case 'ready':
-                          tint = GlassTint.info;
-                          variant = StatusVariant.info;
-                          label = 'READY';
-                          progressColor = const Color(0xFF3B82F6);
-                          subtitle = '${((1 - percentage) * 100).toStringAsFixed(0)}% remaining';
-                          break;
-                        case 'delayed':
-                          tint = GlassTint.warning;
-                          variant = StatusVariant.warning;
-                          label = 'DELAYED';
-                          progressColor = const Color(0xFFF59E0B);
-                          subtitle = 'Prep in progress';
-                          break;
-                        case 'out':
-                        default:
-                          tint = GlassTint.danger;
-                          variant = StatusVariant.danger;
-                          label = 'OUT';
-                          progressColor = const Color(0xFFF43F5E);
-                          subtitle = 'Refill needed';
-                          break;
-                      }
+                  )
+                else
+                  Expanded(
+                    child: GridView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                        childAspectRatio: 1.1,
+                      ),
+                      itemCount: _dishes.length,
+                      itemBuilder: (context, index) {
+                        final dish = _dishes[index];
+                        final percentage = (dish['served'] / dish['quantity']);
+                        final status = dish['status'] as String;
 
-                      return GlassCard(
-                        tint: tint,
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            StatusPill(text: label, variant: variant),
-                            const Spacer(),
-                            Text(dish['name'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)), maxLines: 1, overflow: TextOverflow.ellipsis),
-                            const SizedBox(height: 8),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.baseline,
-                              textBaseline: TextBaseline.alphabetic,
-                              children: [
-                                Text('${dish['served']}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w300, color: Color(0xFF0F172A), letterSpacing: -0.5)),
-                                const SizedBox(width: 4),
-                                Text('/ ${dish['quantity']}', style: const TextStyle(fontSize: 14, color: Color(0xFF334155))),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              height: 8,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFE2E8F0).withOpacity(0.6),
-                                borderRadius: BorderRadius.circular(4),
+                        GlassTint tint;
+                        StatusVariant variant;
+                        String label;
+                        Color progressColor;
+                        String subtitle;
+
+                        switch (status) {
+                          case 'serving':
+                            tint = GlassTint.success;
+                            variant = StatusVariant.success;
+                            label = 'SERVING';
+                            progressColor = const Color(0xFF10B981);
+                            subtitle = '${((1 - percentage) * 100).toStringAsFixed(0)}% remaining';
+                            break;
+                          case 'ready':
+                            tint = GlassTint.info;
+                            variant = StatusVariant.info;
+                            label = 'READY';
+                            progressColor = const Color(0xFF3B82F6);
+                            subtitle = '${((1 - percentage) * 100).toStringAsFixed(0)}% remaining';
+                            break;
+                          case 'delayed':
+                            tint = GlassTint.warning;
+                            variant = StatusVariant.warning;
+                            label = 'DELAYED';
+                            progressColor = const Color(0xFFF59E0B);
+                            subtitle = 'Prep in progress';
+                            break;
+                          case 'out':
+                          default:
+                            tint = GlassTint.danger;
+                            variant = StatusVariant.danger;
+                            label = 'OUT';
+                            progressColor = const Color(0xFFF43F5E);
+                            subtitle = 'Refill needed';
+                            break;
+                        }
+
+                        return GlassCard(
+                          tint: tint,
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              StatusPill(text: label, variant: variant),
+                              const Spacer(),
+                              Text(dish['name'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                              const SizedBox(height: 8),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.baseline,
+                                textBaseline: TextBaseline.alphabetic,
+                                children: [
+                                  Text('${dish['served']}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w300, color: Color(0xFF0F172A), letterSpacing: -0.5)),
+                                  const SizedBox(width: 4),
+                                  Text('/ ${dish['quantity']}', style: const TextStyle(fontSize: 14, color: Color(0xFF334155))),
+                                ],
                               ),
-                              child: FractionallySizedBox(
-                                alignment: Alignment.centerLeft,
-                                widthFactor: percentage.clamp(0.0, 1.0),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: progressColor,
-                                    borderRadius: BorderRadius.circular(4),
+                              const SizedBox(height: 8),
+                              Container(
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE2E8F0).withOpacity(0.6),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: FractionallySizedBox(
+                                  alignment: Alignment.centerLeft,
+                                  widthFactor: percentage.clamp(0.0, 1.0),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: progressColor,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(subtitle, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
-                          ],
-                        ),
-                      );
-                    },
+                              const SizedBox(height: 8),
+                              Text(subtitle, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                   ),
-                ),
                 
                 Padding(
                   padding: const EdgeInsets.all(16),

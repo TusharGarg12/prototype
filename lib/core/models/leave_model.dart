@@ -7,6 +7,9 @@ class LeaveModel {
   final String status;
   final String? reviewNote;
   final DateTime createdAt;
+  final String? userName;
+  final String? userEmail;
+  final String? rollNumber;
 
   const LeaveModel({
     required this.id,
@@ -17,6 +20,9 @@ class LeaveModel {
     required this.status,
     this.reviewNote,
     required this.createdAt,
+    this.userName,
+    this.userEmail,
+    this.rollNumber,
   });
 
   factory LeaveModel.fromJson(Map<String, dynamic> json) => LeaveModel(
@@ -28,6 +34,9 @@ class LeaveModel {
         status: json['status'] as String,
         reviewNote: json['reviewNote'] as String?,
         createdAt: DateTime.parse(json['createdAt'] as String),
+        userName: (json['user'] as Map<String, dynamic>?)?['name'] as String?,
+        userEmail: (json['user'] as Map<String, dynamic>?)?['email'] as String?,
+        rollNumber: (json['user'] as Map<String, dynamic>?)?['rollNumber'] as String?,
       );
 
   bool get isPending  => status == 'PENDING';

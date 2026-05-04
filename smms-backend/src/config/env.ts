@@ -9,6 +9,8 @@ const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   OTP_EXPIRY_MINUTES: z.coerce.number().default(10),
   QR_WINDOW_MINUTES: z.coerce.number().default(30),
+  OLLAMA_BASE_URL: z.string().url().default('http://localhost:11434'),
+  OLLAMA_MODEL: z.string().default('llama3'),
 });
 
 const parsed = EnvSchema.safeParse(process.env);

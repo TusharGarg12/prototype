@@ -15,6 +15,7 @@ const String kPatchMe       = '/users/me';
 // ── Menu ───────────────────────────────────────────────────────────────────────
 const String kMenuToday     = '/menu/today';
 const String kMenuWeek      = '/menu/week';
+const String kMenuAdmin     = '/menu';
 
 // ── QR ─────────────────────────────────────────────────────────────────────────
 const String kQrGenerate    = '/qr/generate';
@@ -30,6 +31,10 @@ const String kLeavesMe      = '/leaves/me';
 
 // ── Feedback ──────────────────────────────────────────────────────────────────
 const String kFeedback      = '/feedback';
+const String kFeedbackSummary = '/feedback/summary';
+
+// ── Dishes ───────────────────────────────────────────────────────────────────
+const String kDishes        = '/dishes';
 
 // ── Notifications ──────────────────────────────────────────────────────
 const String kNotifications = '/notifications';

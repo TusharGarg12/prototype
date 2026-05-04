@@ -33,14 +33,25 @@ class LeaveService {
     return LeaveModel.fromJson(data as Map<String, dynamic>);
   }
 
-  Future<List<dynamic>> getPendingLeaves() async {
-    // Admin API Request
-    return await api.get('/admin/leaves') as List<dynamic>;
+  Future<List<LeaveModel>> getAdminLeaves({
+    String? status,
+    int page = 1,
+    int limit = 20,
+  }) async {
+    final params = <String, dynamic>{'page': page, 'limit': limit};
+    if (status != null) params['status'] = status;
+    final data = await api.get(kLeaves, params: params);
+    return ((data as Map<String, dynamic>)['leaves'] as List<dynamic>)
+        .map((e) => LeaveModel.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
-  Future<dynamic> processLeave(String leaveId, String status) async {
-    // Admin API Request (APPROVED | REJECTED)
-    return await api.patch('/admin/leaves/$leaveId', body: {'status': status});
+  Future<LeaveModel> processLeave(String leaveId, String status, {String? reviewNote}) async {
+    final data = await api.patch('$kLeaves/$leaveId/review', body: {
+      'status': status,
+      if (reviewNote != null && reviewNote.trim().isNotEmpty) 'reviewNote': reviewNote.trim(),
+    });
+    return LeaveModel.fromJson(data as Map<String, dynamic>);
   }
 }
 

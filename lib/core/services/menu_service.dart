@@ -20,13 +20,52 @@ class MenuService {
         .toList();
   }
 
-  Future<void> createMenu({required String date, required String mealType, required List<Map<String, dynamic>> dishes}) async {
-    // Admin API Request to create/publish a menu
-    await api.post('/menu', body: {
-      'date': date,
-      'mealType': mealType,
-      'dishes': dishes,
+  Future<List<MenuModel>> queryMenus({String? date, String? mealSlot}) async {
+    final data = await api.get(kMenuAdmin, params: {
+      if (date != null) 'date': date,
+      if (mealSlot != null) 'mealSlot': mealSlot,
     });
+    return (data as List<dynamic>)
+        .map((e) => MenuModel.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<MenuModel> createMenu({
+    required DateTime menuDate,
+    required String mealSlot,
+    required List<String> dishIds,
+    bool isPublished = false,
+  }) async {
+    final data = await api.post(kMenuAdmin, body: {
+      'menuDate': _formatDate(menuDate),
+      'mealSlot': mealSlot,
+      'dishIds': dishIds,
+      'isPublished': isPublished,
+    });
+    return MenuModel.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<MenuModel> updateMenu({
+    required String id,
+    List<String>? dishIds,
+    bool? isPublished,
+  }) async {
+    final data = await api.patch('$kMenuAdmin/$id', body: {
+      if (dishIds != null) 'dishIds': dishIds,
+      if (isPublished != null) 'isPublished': isPublished,
+    });
+    return MenuModel.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<void> deleteMenu(String id) async {
+    await api.delete('$kMenuAdmin/$id');
+  }
+
+  String _formatDate(DateTime date) {
+    final y = date.year.toString().padLeft(4, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
   }
 }
 

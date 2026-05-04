@@ -7,5 +7,6 @@ import * as AnalyticsController from './analytics.controller';
 const router = Router();
 
 router.get('/heatmap', authenticate, authorize(Role.ADMIN), AnalyticsController.getCrowdHeatmap);
+router.get('/predictions', authenticate, authorize(Role.ADMIN), AnalyticsController.getPredictions);
 
 export default router;

@@ -12,7 +12,7 @@ router.get('/me',        authenticate, AttendanceController.getMyAttendance);
 // GET /api/attendance    — Admin filtered view
 router.get('/',          authenticate, authorize(Role.ADMIN), AttendanceController.getAdminAttendance);
 
-// GET /api/attendance/footfall  — Admin footfall summary by slot
-router.get('/footfall',  authenticate, authorize(Role.ADMIN), AttendanceController.getFootfallSummary);
+// GET /api/attendance/footfall  — Admin/Kitchen footfall summary by slot
+router.get('/footfall',  authenticate, authorize(Role.ADMIN, Role.KITCHEN_STAFF), AttendanceController.getFootfallSummary);
 
 export default router;

@@ -2,6 +2,11 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../../config/prisma';
 import { ok } from '../../utils/apiResponse';
 import { getCurrentMealSlot, todayDate } from '../../utils/mealWindow';
+import scenarios from '../../data/attendance_scenarios.json';
+import calendar from '../../data/calendar_2025.json';
+
+type MealSlot = 'BREAKFAST' | 'LUNCH' | 'SNACKS' | 'DINNER';
+type ScenarioKey = keyof typeof scenarios;
 
 export const getCrowdHeatmap = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -36,19 +41,103 @@ export const getCrowdHeatmap = async (req: Request, res: Response, next: NextFun
       .map(([time, count]) => ({ time, count }))
       .sort((a, b) => a.time.localeCompare(b.time));
 
-    // Fetch predicted baseline for comparison
-    const prediction = await prisma.predictionData.findUnique({
-      where: {
-        mealDate_mealSlot: { mealDate, mealSlot }
-      }
-    });
+    const dateStr = formatDate(mealDate);
+    const scenario = scenarioForDate(dateStr, {});
+    const prediction = predictedCountFor(scenario, mealSlot as MealSlot);
 
     return ok(res, {
         mealSlot,
         mealDate,
         heatmap: sortedHeatmap,
-        prediction: prediction?.predictedCount || 0
+        prediction
     }, 'Live Heatmap Analytics');
+  } catch (error) {
+    next(error);
+  }
+};
+
+const formatDate = (date: Date) => {
+  const y = date.getFullYear().toString().padStart(4, '0');
+  const m = (date.getMonth() + 1).toString().padStart(2, '0');
+  const d = date.getDate().toString().padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const parseDate = (input: string) => {
+  const [y, m, d] = input.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+
+const isWithinRange = (dateStr: string, range: { start: string; end: string }) => {
+  const date = parseDate(dateStr).getTime();
+  const start = parseDate(range.start).getTime();
+  const end = parseDate(range.end).getTime();
+  return date >= start && date <= end;
+};
+
+const isHoliday = (dateStr: string) => calendar.holidays.includes(dateStr);
+
+const isFestDay = (dateStr: string) => calendar.festDays.includes(dateStr);
+
+const isExamWeek = (dateStr: string) =>
+  calendar.examWeeks.some((range) => isWithinRange(dateStr, range));
+
+const scenarioForDate = (dateStr: string, flags: { weather?: string; exam?: boolean; fest?: boolean }) => {
+  const date = parseDate(dateStr);
+  const weekday = date.getDay();
+  const weather = flags.weather ?? 'clear';
+  const isExam = flags.exam ?? isExamWeek(dateStr);
+  const isFest = flags.fest ?? isFestDay(dateStr);
+  const nextDate = formatDate(new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1));
+  const prevDate = formatDate(new Date(date.getFullYear(), date.getMonth(), date.getDate() - 1));
+  const holidayTomorrow = isHoliday(nextDate);
+
+  if (weather === 'rain' && isExam) return 'Rain + Exam' as ScenarioKey;
+  if (weather === 'rain' && isFest) return 'Rain + Fest' as ScenarioKey;
+
+  if (holidayTomorrow) return 'Flight Risk (Day Before Holiday)' as ScenarioKey;
+  if (isHoliday(prevDate)) return 'Return Lag (Day After Holiday)' as ScenarioKey;
+
+  if (isFest) return 'Fest Days (Effervescence)' as ScenarioKey;
+  if (isExam) return 'Exam Week (Normal Weather)' as ScenarioKey;
+  if (weather === 'rain' && weekday === 6) return 'Rain + Weekend' as ScenarioKey;
+  if (weather === 'rain') return 'Heavy Rain (Normal Day)' as ScenarioKey;
+  if (weekday === 0) return 'Best Menu (Sunday)' as ScenarioKey;
+  if (weekday === 2) return 'Worst Menu (Tuesday)' as ScenarioKey;
+  if (weekday === 6) return 'Normal Weekend (Saturday)' as ScenarioKey;
+  return 'Baseline (Normal Wednesday)' as ScenarioKey;
+};
+
+const predictedCountFor = (scenario: ScenarioKey, mealSlot: MealSlot) => {
+  const values = scenarios[scenario];
+  if (mealSlot === 'BREAKFAST') return values.BREAKFAST;
+  if (mealSlot === 'LUNCH') return values.LUNCH;
+  if (mealSlot === 'DINNER') return values.DINNER;
+
+  // Snacks are not in the dataset; approximate using lunch baseline.
+  return Math.max(0, Math.round(values.LUNCH * 0.35));
+};
+
+export const getPredictions = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const days = Math.max(1, Math.min(30, Number(req.query.days ?? 7)));
+    const start = (req.query.start as string) ?? formatDate(new Date());
+    const weather = (req.query.weather as string | undefined) ?? undefined;
+    const exam = req.query.exam === 'true' ? true : undefined;
+    const fest = req.query.fest === 'true' ? true : undefined;
+
+    const predictions: Array<{ date: string; mealSlot: MealSlot; predictedCount: number; scenario: string }> = [];
+
+    for (let i = 0; i < days; i += 1) {
+      const date = new Date(parseDate(start).getTime() + i * 24 * 60 * 60 * 1000);
+      const dateStr = formatDate(date);
+      const scenario = scenarioForDate(dateStr, { weather, exam, fest });
+      predictions.push({ date: dateStr, mealSlot: 'BREAKFAST', predictedCount: predictedCountFor(scenario, 'BREAKFAST'), scenario });
+      predictions.push({ date: dateStr, mealSlot: 'LUNCH', predictedCount: predictedCountFor(scenario, 'LUNCH'), scenario });
+      predictions.push({ date: dateStr, mealSlot: 'DINNER', predictedCount: predictedCountFor(scenario, 'DINNER'), scenario });
+    }
+
+    ok(res, { predictions, start, days }, 'Attendance predictions');
   } catch (error) {
     next(error);
   }

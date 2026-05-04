@@ -98,6 +98,17 @@ export const validateQRPass = async (
         isOverride: false,
       },
     });
+
+    const student = await tx.user.findUnique({
+      where: { id: pass.userId },
+      select: {
+        id: true,
+        name: true,
+        rollNumber: true,
+        email: true,
+        photoUrl: true,
+      },
+    });
     // Surge Management Phase 2: Check for off-peak points
     const currentHr = new Date().getHours();
     const currentMin = new Date().getMinutes();
@@ -129,15 +140,15 @@ export const validateQRPass = async (
     // Auto-decrement inventory (runs inside the same transaction)
     await decrementInventoryForMeal(pass.mealSlot, tx);
 
-    return { log, studentId: pass.userId, mealSlot: pass.mealSlot };
+    return { log, student };
   }).then(async (result) => {
     // Notify student (outside transaction — non-critical)
-    await notifyUser(result.studentId, {
+    await notifyUser(result.log.userId, {
       title: 'Meal Collected ✅',
-      body: `Your ${result.mealSlot.toLowerCase()} has been successfully recorded.`,
+      body: `Your ${result.log.mealSlot.toLowerCase()} has been successfully recorded.`,
     }).catch(() => { /* silent */ });
 
-    return result.log;
+    return result;
   });
 };
 

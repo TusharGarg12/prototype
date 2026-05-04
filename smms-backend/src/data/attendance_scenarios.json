@@ -1,0 +1,14 @@
+{
+  "Baseline (Normal Wednesday)": { "BREAKFAST": 270, "LUNCH": 380, "DINNER": 450 },
+  "Worst Menu (Tuesday)": { "BREAKFAST": 230, "LUNCH": 325, "DINNER": 380 },
+  "Best Menu (Sunday)": { "BREAKFAST": 320, "LUNCH": 480, "DINNER": 540 },
+  "Heavy Rain (Normal Day)": { "BREAKFAST": 190, "LUNCH": 320, "DINNER": 380 },
+  "Exam Week (Normal Weather)": { "BREAKFAST": 390, "LUNCH": 440, "DINNER": 520 },
+  "Fest Days (Effervescence)": { "BREAKFAST": 130, "LUNCH": 110, "DINNER": 220 },
+  "Normal Weekend (Saturday)": { "BREAKFAST": 180, "LUNCH": 420, "DINNER": 470 },
+  "Rain + Exam": { "BREAKFAST": 350, "LUNCH": 400, "DINNER": 440 },
+  "Rain + Weekend": { "BREAKFAST": 120, "LUNCH": 360, "DINNER": 400 },
+  "Rain + Fest": { "BREAKFAST": 150, "LUNCH": 150, "DINNER": 250 },
+  "Flight Risk (Day Before Holiday)": { "BREAKFAST": 250, "LUNCH": 250, "DINNER": 315 },
+  "Return Lag (Day After Holiday)": { "BREAKFAST": 230, "LUNCH": 325, "DINNER": 380 }
+}

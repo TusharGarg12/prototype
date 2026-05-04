@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../components/glass_card.dart';
 import '../../core/services/qr_service.dart';
 
@@ -18,6 +19,12 @@ class _QRScannerScreenState extends State<QRScannerScreen> with SingleTickerProv
   bool _isLoading = false;
   late AnimationController _animationController;
   final MobileScannerController _cameraController = MobileScannerController();
+  final List<String> _counters = const ['counter_1', 'counter_2', 'counter_3', 'counter_4'];
+  String _selectedCounter = 'counter_1';
+  bool _rememberCounter = true;
+
+  static const String _counterPrefKey = 'admin_selected_counter';
+  static const String _rememberPrefKey = 'admin_remember_counter';
 
   @override
   void initState() {
@@ -26,6 +33,30 @@ class _QRScannerScreenState extends State<QRScannerScreen> with SingleTickerProv
         vsync: this,
         duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
+    _loadCounterPreference();
+  }
+
+  Future<void> _loadCounterPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    final remember = prefs.getBool(_rememberPrefKey) ?? true;
+    final savedCounter = prefs.getString(_counterPrefKey);
+    if (!mounted) return;
+    setState(() {
+      _rememberCounter = remember;
+      if (remember && savedCounter != null && _counters.contains(savedCounter)) {
+        _selectedCounter = savedCounter;
+      }
+    });
+  }
+
+  Future<void> _persistCounterPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_rememberPrefKey, _rememberCounter);
+    if (_rememberCounter) {
+      await prefs.setString(_counterPrefKey, _selectedCounter);
+    } else {
+      await prefs.remove(_counterPrefKey);
+    }
   }
 
   @override
@@ -51,18 +82,33 @@ class _QRScannerScreenState extends State<QRScannerScreen> with SingleTickerProv
       _isLoading = true;
     });
 
+    await _cameraController.stop();
+
     try {
-      final res = await qrService.validatePass(token, counterId: 'counter_1');
-      // If success, backend returns a log or success message
+      final res = await qrService.validatePass(token, counterId: _selectedCounter);
+      final log = (res['log'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final student = (res['student'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final String name = (student['name'] as String?)?.trim().isNotEmpty == true
+          ? (student['name'] as String).trim()
+          : 'Unknown Student';
+      final String roll = (student['rollNumber'] as String?)?.trim().isNotEmpty == true
+          ? (student['rollNumber'] as String)
+          : (student['email'] as String?) ?? 'Unknown ID';
+      final String avatar = _initialsFromName(name);
+
       setState(() {
         _isLoading = false;
         _scanResult = {
           'type': 'verified',
           'student': {
-            'name': 'Student ID', 
-            'roll': res['log']?['studentId'] ?? 'Verified',
-            'avatar': 'OK'
+            'name': name,
+            'roll': roll,
+            'avatar': avatar,
           },
+          'mealSlot': log['mealSlot'],
+          'scannedAt': log['scannedAt'],
+          'counter': log['counterId'] ?? _selectedCounter,
+          'message': 'Attendance recorded successfully',
         };
       });
     } catch (e) {
@@ -75,45 +121,63 @@ class _QRScannerScreenState extends State<QRScannerScreen> with SingleTickerProv
               'student': {
                 'name': 'Duplicate Scan',
                 'roll': 'Invalid',
-                'avatar': 'ERR',
+                'avatar': 'DS',
               },
-              'time': 'Just now',
-              'counter': 1,
+              'scannedAt': DateTime.now().toIso8601String(),
+              'counter': _selectedCounter,
+              'message': 'This pass was already used.',
+            };
+        } else if (errorString.contains('expired')) {
+            _scanResult = {
+              'type': 'expired',
+              'student': {
+                'name': 'Expired Pass',
+                'roll': 'Invalid',
+                'avatar': 'EX',
+              },
+              'message': 'Pass is expired. Ask student to regenerate.',
+            };
+        } else if (errorString.contains('blocked')) {
+            _scanResult = {
+              'type': 'blocked',
+              'student': {
+                'name': 'Blocked Pass',
+                'roll': 'Invalid',
+                'avatar': 'BL',
+              },
+              'message': 'Pass is blocked. Contact admin.',
+            };
+        } else if (errorString.contains('not found')) {
+            _scanResult = {
+              'type': 'invalid',
+              'student': {
+                'name': 'Invalid Pass',
+                'roll': 'Not recognized',
+                'avatar': 'NF',
+              },
+              'message': 'QR not recognized. Try again.',
             };
         } else {
              _scanResult = {
-              'type': 'on_leave',
+              'type': 'invalid',
               'student': {
                 'name': 'Invalid Pass',
                 'roll': 'Failed Validation',
                 'avatar': 'ERR',
-              }
+              },
+              'message': 'Validation failed. Please retry.',
             };
         }
       });
     }
   }
 
-  void _handleSimulateScan(String type) {
-    setState(() {
-      _isScanning = false;
-      _scanResult = {
-        'type': type,
-        'student': {
-          'name': 'Aryan Mehta',
-          'roll': '21BCE0234',
-          'avatar': 'AM',
-        },
-        'time': type == 'already_used' ? '1:14 PM' : null,
-        'counter': type == 'already_used' ? 3 : null,
-      };
-    });
-  }
-
-  void _handleReset() {
+  Future<void> _handleReset() async {
+    await _cameraController.start();
     setState(() {
       _scanResult = null;
       _isScanning = true;
+      _isLoading = false;
     });
   }
 
@@ -166,7 +230,43 @@ class _QRScannerScreenState extends State<QRScannerScreen> with SingleTickerProv
                         ),
                       ),
                       const Text('QR Scanner', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Colors.white)),
-                      const SizedBox(width: 40),
+                      DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _selectedCounter,
+                          dropdownColor: const Color(0xFF0F172A),
+                          icon: const Icon(LucideIcons.chevronDown, size: 16, color: Colors.white),
+                          style: const TextStyle(color: Colors.white, fontSize: 12),
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setState(() => _selectedCounter = value);
+                            _persistCounterPreference();
+                          },
+                          items: _counters
+                              .map((counter) => DropdownMenuItem(
+                                    value: counter,
+                                    child: Text(counter.replaceAll('_', ' ')),
+                                  ))
+                              .toList(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Text('Remember counter', style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.7))),
+                      Switch(
+                        value: _rememberCounter,
+                        onChanged: (value) {
+                          setState(() => _rememberCounter = value);
+                          _persistCounterPreference();
+                        },
+                        activeColor: const Color(0xFF60A5FA),
+                      ),
                     ],
                   ),
                 ),
@@ -236,12 +336,8 @@ class _QRScannerScreenState extends State<QRScannerScreen> with SingleTickerProv
                     child: Column(
                       children: [
                         Text('Position QR code within frame', style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.7))),
-                        const SizedBox(height: 24),
-                        _buildSimulateButton('Simulate: Verified', 'verified', const Color(0xFF6EE7B7), const Color(0xFF047857)),
-                        const SizedBox(height: 8),
-                        _buildSimulateButton('Simulate: Already Used', 'already_used', const Color(0xFFFDA4AF), const Color(0xFFBE123C)),
-                        const SizedBox(height: 8),
-                        _buildSimulateButton('Simulate: On Leave', 'on_leave', const Color(0xFFFCD34D), const Color(0xFFB45309)),
+                        const SizedBox(height: 12),
+                        Text('Scanning automatically once detected', style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.55))),
                       ],
                     ),
                   ),
@@ -286,14 +382,26 @@ class _QRScannerScreenState extends State<QRScannerScreen> with SingleTickerProv
                               ),
                               
                               Text(
-                                _scanResult!['type'] == 'verified' ? 'VERIFIED' : _scanResult!['type'] == 'already_used' ? 'ALREADY USED' : 'ON LEAVE',
+                                _statusTitle(_scanResult!['type'] as String),
                                 style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
                               ),
+                              if (_scanResult?['message'] != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Text(
+                                    _scanResult!['message'] as String,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                                  ),
+                                ),
                               
                               if (_scanResult!['type'] == 'already_used')
                                 Padding(
                                   padding: const EdgeInsets.only(top: 4),
-                                  child: Text('Scanned at Counter ${_scanResult!['counter']} • ${_scanResult!['time']}', style: const TextStyle(fontSize: 14, color: Color(0xFF9F1239))),
+                                  child: Text(
+                                    'Scanned at ${_scanResult!['counter']} • ${_formatTime(_scanResult!['scannedAt'])}',
+                                    style: const TextStyle(fontSize: 14, color: Color(0xFF9F1239)),
+                                  ),
                                 ),
                                 
                               const SizedBox(height: 24),
@@ -322,6 +430,8 @@ class _QRScannerScreenState extends State<QRScannerScreen> with SingleTickerProv
                                       children: [
                                         Text(_scanResult!['student']['name'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
                                         Text('Roll: ${_scanResult!['student']['roll']}', style: const TextStyle(fontSize: 14, color: Color(0xFF334155))),
+                                        if (_scanResult!['mealSlot'] != null)
+                                          Text('Meal: ${_formatMealSlot(_scanResult!['mealSlot'] as String)}', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
                                       ],
                                     ),
                                   ],
@@ -334,11 +444,11 @@ class _QRScannerScreenState extends State<QRScannerScreen> with SingleTickerProv
                                 Row(
                                   children: [
                                     Expanded(
-                                      child: _buildActionButton('Approve', _handleReset, const Color(0xFF6EE7B7), const Color(0xFF047857), true),
+                                      child: _buildActionButton('Scan Next', _handleReset, const Color(0xFF6EE7B7), const Color(0xFF047857), true),
                                     ),
                                     const SizedBox(width: 8),
                                     Expanded(
-                                      child: _buildActionButton('Reject', _handleReset, Colors.white.withOpacity(0.7), const Color(0xFF334155), false),
+                                      child: _buildActionButton('Close', _handleReset, Colors.white.withOpacity(0.7), const Color(0xFF334155), false),
                                     ),
                                   ],
                                 )
@@ -346,7 +456,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> with SingleTickerProv
                                 Row(
                                   children: [
                                     Expanded(
-                                      child: _buildActionButton('Override', _handleReset, const Color(0xFF93C5FD), const Color(0xFF1D4ED8), true),
+                                      child: _buildActionButton('Rescan', _handleReset, const Color(0xFF93C5FD), const Color(0xFF1D4ED8), true),
                                     ),
                                     const SizedBox(width: 8),
                                     Expanded(
@@ -388,24 +498,54 @@ class _QRScannerScreenState extends State<QRScannerScreen> with SingleTickerProv
     );
   }
 
-  Widget _buildSimulateButton(String text, String type, Color borderColor, Color textColor) {
-    return SizedBox(
-      width: double.infinity,
-      height: 48,
-      child: ElevatedButton(
-        onPressed: () => _handleSimulateScan(type),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.white.withOpacity(0.70),
-          foregroundColor: textColor,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: BorderSide(color: borderColor, width: 0.5),
-          ),
-        ),
-        child: Text(text, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-      ),
-    );
+  String _formatMealSlot(String mealSlot) {
+    switch (mealSlot) {
+      case 'BREAKFAST':
+        return 'Breakfast';
+      case 'LUNCH':
+        return 'Lunch';
+      case 'SNACKS':
+        return 'Snacks';
+      case 'DINNER':
+        return 'Dinner';
+      default:
+        return mealSlot;
+    }
+  }
+
+  String _formatTime(dynamic scannedAt) {
+    try {
+      final dateTime = scannedAt is String ? DateTime.parse(scannedAt) : DateTime.now();
+      final timeOfDay = TimeOfDay.fromDateTime(dateTime.toLocal());
+      final hour = timeOfDay.hourOfPeriod == 0 ? 12 : timeOfDay.hourOfPeriod;
+      final minute = timeOfDay.minute.toString().padLeft(2, '0');
+      final suffix = timeOfDay.period == DayPeriod.am ? 'AM' : 'PM';
+      return '$hour:$minute $suffix';
+    } catch (_) {
+      return 'Just now';
+    }
+  }
+
+  String _initialsFromName(String name) {
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.isEmpty) return 'NA';
+    if (parts.length == 1) return parts[0][0].toUpperCase();
+    return '${parts[0][0]}${parts.last[0]}'.toUpperCase();
+  }
+
+  String _statusTitle(String type) {
+    switch (type) {
+      case 'verified':
+        return 'VERIFIED';
+      case 'already_used':
+        return 'ALREADY USED';
+      case 'expired':
+        return 'EXPIRED';
+      case 'blocked':
+        return 'BLOCKED';
+      default:
+        return 'INVALID';
+    }
   }
 
   Widget _buildActionButton(String text, VoidCallback onPressed, Color borderColor, Color textColor, bool isPrimary) {
