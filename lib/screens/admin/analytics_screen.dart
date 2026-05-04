@@ -4,6 +4,8 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../components/glass_card.dart';
 import '../../components/status_pill.dart';
 import '../../components/global_glass_scaffold.dart';
+import '../../core/api/api_client.dart';
+import '../../core/api/api_endpoints.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -13,6 +15,31 @@ class AnalyticsScreen extends StatefulWidget {
 }
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
+  bool _isLoadingHeatmap = true;
+  List<dynamic> _heatmapData = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchHeatmap();
+  }
+
+  Future<void> _fetchHeatmap() async {
+    try {
+      final res = await api.get(kAnalyticsHeatmap);
+      if (mounted) {
+        setState(() {
+          _heatmapData = res['data']?['heatmap'] ?? [];
+          _isLoadingHeatmap = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isLoadingHeatmap = false);
+      }
+    }
+  }
+
   final List<Map<String, dynamic>> _weeklyData = [
     { 'day': 'Mon', 'breakfast': 450, 'lunch': 780, 'dinner': 620 },
     { 'day': 'Tue', 'breakfast': 420, 'lunch': 820, 'dinner': 580 },
@@ -264,6 +291,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     ),
                     const SizedBox(height: 16),
                     
+                    _buildLiveHeatmapCard(),
+                    const SizedBox(height: 16),
+
                     GlassCard(
                       padding: const EdgeInsets.all(16),
                       child: Column(
@@ -412,6 +442,95 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildLiveHeatmapCard() {
+    if (_isLoadingHeatmap) {
+      return const GlassCard(
+        padding: EdgeInsets.all(16),
+        child: SizedBox(height: 160, child: Center(child: CircularProgressIndicator())),
+      );
+    }
+    if (_heatmapData.isEmpty) {
+      return const GlassCard(
+        padding: EdgeInsets.all(16),
+        child: SizedBox(height: 160, child: Center(child: Text('No Live Crowd Data', style: TextStyle(color: Color(0xFF64748B))))),
+      );
+    }
+
+    int maxScans = 1;
+    for (var bucket in _heatmapData) {
+      final c = (bucket['count'] as num?)?.toInt() ?? 0;
+      if (c > maxScans) maxScans = c;
+    }
+
+    return GlassCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Live Crowd Heatmap', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
+              Row(
+                children: [
+                  const Icon(LucideIcons.radioReceiver, size: 12, color: Color(0xFFEF4444)),
+                  const SizedBox(width: 4),
+                  const Text('LIVE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFFEF4444))),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 120,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: _heatmapData.map((data) {
+                final heightFactor = (((data['count'] as num?)?.toDouble() ?? 0) / maxScans).clamp(0.05, 1.0);
+                Color barColor = const Color(0xFF34D399); // Safe
+                if (heightFactor > 0.75) {
+                  barColor = const Color(0xFFEF4444); // Surge/Crowded
+                } else if (heightFactor > 0.4) {
+                  barColor = const Color(0xFFFBBF24); // Medium
+                }
+
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 1.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: FractionallySizedBox(
+                              heightFactor: heightFactor,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: barColor.withOpacity(0.8),
+                                  borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          (data['time'] as String?)?.substring(0, 5) ?? '', // e.g. "12:30"
+                          style: const TextStyle(fontSize: 8, color: Color(0xFF334155)),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -1,0 +1,273 @@
+// ============================================================
+// schema.prisma — SMMS Phase 1 MVP
+// PostgreSQL for production
+// Enums are stored as String — validated in TypeScript via src/config/enums.ts
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// USER & AUTH
+// ─────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  rollNumber   String?  @unique
+  name         String
+  role         String   @default("STUDENT")   // Role enum: STUDENT | ADMIN | KITCHEN_STAFF
+  photoUrl     String?
+  isActive     Boolean  @default(true)
+  rewardPoints Int      @default(0)           // Phase 2: Gamification points
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  otpRecords            OtpRecord[]
+  refreshTokens         RefreshToken[]
+  qrPasses              QRPass[]
+  attendanceLogs        AttendanceLog[]
+  leaveRequests         LeaveRequest[]
+  feedbacks             Feedback[]
+  notifications         Notification[]
+  menuChanges           Menu[]                  @relation("MenuCreatedBy")
+  inventoryEdits        InventoryItem[]         @relation("InventoryEditedBy")
+  overrideLogs          AttendanceOverrideLog[] @relation("OverrideOperator")
+  reviewedLeaves        LeaveRequest[]          @relation("LeaveReviewer")
+}
+
+model OtpRecord {
+  id        String   @id @default(uuid())
+  userId    String
+  otp       String   // bcrypt hashed
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique // SHA-256 hashed
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// QR PASS & ATTENDANCE
+// ─────────────────────────────────────────────
+
+model QRPass {
+  id        String   @id @default(uuid())
+  userId    String
+  mealSlot  String   // MealSlot: BREAKFAST | LUNCH | SNACKS | DINNER
+  mealDate  DateTime
+  token     String   @unique // SHA-256 hash of the raw nanoid
+  status    String   @default("VALID") // QRStatus: VALID | USED | EXPIRED | BLOCKED
+  expiresAt DateTime // generation time + 30 minutes
+  createdAt DateTime @default(now())
+
+  user          User            @relation(fields: [userId], references: [id])
+  attendanceLog AttendanceLog?
+
+  @@unique([userId, mealSlot, mealDate])
+  @@index([token])
+  @@index([mealDate, mealSlot])
+}
+
+model AttendanceLog {
+  id         String   @id @default(uuid())
+  userId     String
+  qrPassId   String   @unique
+  mealSlot   String   // MealSlot string
+  mealDate   DateTime
+  scannedAt  DateTime @default(now())
+  counterId  String?
+  operatorId String?
+  isOverride Boolean  @default(false)
+
+  user   User   @relation(fields: [userId], references: [id])
+  qrPass QRPass @relation(fields: [qrPassId], references: [id])
+
+  @@index([userId, mealDate])
+  @@index([mealDate, mealSlot])
+}
+
+model AttendanceOverrideLog {
+  id         String   @id @default(uuid())
+  studentId  String
+  operatorId String
+  mealSlot   String
+  mealDate   DateTime
+  reason     String
+  createdAt  DateTime @default(now())
+
+  operator User @relation("OverrideOperator", fields: [operatorId], references: [id])
+
+  @@index([mealDate])
+}
+
+// ─────────────────────────────────────────────
+// MENU & DISHES
+// ─────────────────────────────────────────────
+
+model Menu {
+  id          String   @id @default(uuid())
+  mealSlot    String   // MealSlot string
+  menuDate    DateTime
+  isPublished Boolean  @default(false)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy User       @relation("MenuCreatedBy", fields: [createdById], references: [id])
+  menuItems MenuItem[]
+
+  @@unique([mealSlot, menuDate])
+  @@index([menuDate])
+}
+
+model Dish {
+  id          String   @id @default(uuid())
+  name        String
+  category    String
+  isVeg       Boolean  @default(true)
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  menuItems MenuItem[]
+}
+
+model MenuItem {
+  id     String @id @default(uuid())
+  menuId String
+  dishId String
+
+  menu Menu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  dish Dish @relation(fields: [dishId], references: [id])
+
+  @@unique([menuId, dishId])
+}
+
+// ─────────────────────────────────────────────
+// LEAVE MANAGEMENT
+// ─────────────────────────────────────────────
+
+model LeaveRequest {
+  id         String   @id @default(uuid())
+  userId     String
+  fromDate   DateTime
+  toDate     DateTime
+  reason     String?
+  status     String   @default("PENDING") // LeaveStatus: PENDING | APPROVED | REJECTED | CANCELLED
+  reviewedBy String?
+  reviewedAt DateTime?
+  reviewNote String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user     User  @relation(fields: [userId], references: [id])
+  reviewer User? @relation("LeaveReviewer", fields: [reviewedBy], references: [id])
+
+  @@index([userId, status])
+  @@index([fromDate, toDate])
+}
+
+// ─────────────────────────────────────────────
+// FEEDBACK
+// ─────────────────────────────────────────────
+
+model Feedback {
+  id        String   @id @default(uuid())
+  userId    String
+  mealSlot  String?  // MealSlot string or null
+  mealDate  DateTime?
+  rating    Int?
+  message   String?
+  isAnon    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([mealDate])
+}
+
+// ─────────────────────────────────────────────
+// INVENTORY
+// ─────────────────────────────────────────────
+
+model InventoryItem {
+  id             String   @id @default(uuid())
+  name           String
+  unit           String
+  currentStock   Float
+  lowStockLevel  Float
+  lastEditedById String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  lastEditedBy User?                  @relation("InventoryEditedBy", fields: [lastEditedById], references: [id])
+  mealMappings InventoryMealMapping[]
+}
+
+model InventoryMealMapping {
+  id              String @id @default(uuid())
+  inventoryItemId String
+  mealSlot        String // MealSlot string
+  portionQty      Float
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  @@unique([inventoryItemId, mealSlot])
+}
+
+// ─────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  body      String
+  channel   String   @default("IN_APP") // NotificationChannel: IN_APP | EMAIL
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+}
+// ---------------------------------------------
+// ANALYTICS & PREDICTION (PHASE 2)
+// ---------------------------------------------
+
+model PredictionData {
+  id               String   @id @default(uuid())
+  mealDate         DateTime
+  mealSlot         String
+  predictedCount   Int
+  actualCount      Int?
+  confidenceScore  Float?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([mealDate, mealSlot])
+}

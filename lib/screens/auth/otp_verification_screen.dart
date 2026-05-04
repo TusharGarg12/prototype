@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import 'dart:async';
 import '../../components/global_glass_scaffold.dart';
+import '../../core/providers/auth_provider.dart';
 
 class OTPVerificationScreen extends StatefulWidget {
+  final String email;
   final String role;
-  
-  const OTPVerificationScreen({super.key, required this.role});
+
+  const OTPVerificationScreen({super.key, required this.email, required this.role});
 
   @override
   State<OTPVerificationScreen> createState() => _OTPVerificationScreenState();
@@ -16,7 +19,7 @@ class OTPVerificationScreen extends StatefulWidget {
 class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
   final List<TextEditingController> _controllers = List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
-  
+
   int _countdown = 120;
   bool _canResend = false;
   Timer? _timer;
@@ -28,26 +31,14 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
   }
 
   void _startTimer() {
-    setState(() {
-      _countdown = 120;
-      _canResend = false;
-    });
+    setState(() { _countdown = 120; _canResend = false; });
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_countdown <= 1) {
         timer.cancel();
-        if (mounted) {
-          setState(() {
-            _countdown = 0;
-            _canResend = true;
-          });
-        }
+        if (mounted) setState(() { _countdown = 0; _canResend = true; });
       } else {
-        if (mounted) {
-          setState(() {
-            _countdown--;
-          });
-        }
+        if (mounted) setState(() => _countdown--);
       }
     });
   }
@@ -71,25 +62,38 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
     }
   }
 
-  void _verifyOtp() {
+  Future<void> _verifyOtp() async {
     final otp = _controllers.map((c) => c.text).join();
-    if (otp.length == 6) {
-      Future.delayed(const Duration(milliseconds: 300), () {
-        if (mounted) {
-          if (widget.role == 'student') {
-            context.go('/dashboard');
-          } else if (widget.role == 'admin') {
-            context.go('/admin');
-          } else if (widget.role == 'kitchen') {
-            context.go('/kitchen');
-          }
-        }
-      });
+    if (otp.length != 6) return;
+
+    final auth = context.read<AuthProvider>();
+    final ok = await auth.verifyOtp(widget.email, otp);
+
+    if (!mounted) return;
+
+    if (ok) {
+      final user = auth.user!;
+      if (user.isAdmin) {
+        context.go('/admin');
+      } else if (user.isKitchen) {
+        context.go('/kitchen');
+      } else {
+        context.go('/dashboard');
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(auth.error ?? 'Invalid OTP'), backgroundColor: Colors.redAccent),
+      );
+      // Clear OTP boxes
+      for (var c in _controllers) { c.clear(); }
+      _focusNodes[0].requestFocus();
     }
   }
 
-  void _handleResend() {
+  Future<void> _handleResend() async {
     if (!_canResend) return;
+    final auth = context.read<AuthProvider>();
+    await auth.requestOtp(widget.email);
     for (var c in _controllers) { c.clear(); }
     _focusNodes[0].requestFocus();
     _startTimer();
@@ -97,6 +101,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final loading = context.watch<AuthProvider>().loading;
     final minutes = (_countdown / 60).floor();
     final seconds = (_countdown % 60).toString().padLeft(2, '0');
 
@@ -115,7 +120,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
               ),
             ),
           ),
-          
+
           Center(
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -124,28 +129,16 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
                 children: [
                   const Text('Check your inbox', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w400, color: Color(0xFF0F172A), letterSpacing: -0.5)),
                   const SizedBox(height: 8),
-                  const Text('We\'ve sent a 6-digit code to your email', style: TextStyle(fontSize: 14, color: Color(0xFF334155)), textAlign: TextAlign.center),
-                  const SizedBox(height: 8),
-                  RichText(
-                    text: TextSpan(
-                      style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
-                      children: [
-                        const TextSpan(text: 'Logging in as '),
-                        TextSpan(
-                          text: widget.role[0].toUpperCase() + widget.role.substring(1),
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                  ),
+                  const Text("We've sent a 6-digit code to your email", style: TextStyle(fontSize: 14, color: Color(0xFF334155)), textAlign: TextAlign.center),
+                  const SizedBox(height: 4),
+                  Text(widget.email, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1D4ED8))),
                   const SizedBox(height: 32),
-                  
+
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: List.generate(6, (index) {
                       return Container(
-                        width: 48,
-                        height: 56,
+                        width: 48, height: 56,
                         margin: EdgeInsets.only(right: index < 5 ? 12 : 0),
                         decoration: BoxDecoration(
                           color: _controllers[index].text.isNotEmpty ? Colors.white.withOpacity(0.70) : Colors.white.withOpacity(0.60),
@@ -170,37 +163,36 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
                             FilteringTextInputFormatter.digitsOnly,
                             LengthLimitingTextInputFormatter(1),
                           ],
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            counterText: '',
-                          ),
+                          decoration: const InputDecoration(border: InputBorder.none, counterText: ''),
                           onChanged: (value) {
-                            setState(() {}); // Trigger rebuild for styling
+                            setState(() {});
                             _onChanged(value, index);
                           },
                         ),
                       );
                     }),
                   ),
-                  
+
                   const SizedBox(height: 32),
-                  Text(
-                    _countdown > 0 ? '$minutes:$seconds' : 'Code expired',
-                    style: const TextStyle(fontSize: 14, fontFamily: 'monospace', color: Color(0xFF475569)),
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  GestureDetector(
-                    onTap: _handleResend,
-                    child: Text(
-                      'Resend code',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: _canResend ? const Color(0xFF2563EB) : const Color(0xFF94A3B8),
+                  if (loading)
+                    const CircularProgressIndicator()
+                  else ...[
+                    Text(
+                      _countdown > 0 ? '$minutes:$seconds' : 'Code expired',
+                      style: const TextStyle(fontSize: 14, fontFamily: 'monospace', color: Color(0xFF475569)),
+                    ),
+                    const SizedBox(height: 16),
+                    GestureDetector(
+                      onTap: _canResend ? _handleResend : null,
+                      child: Text(
+                        'Resend code',
+                        style: TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w500,
+                          color: _canResend ? const Color(0xFF2563EB) : const Color(0xFF94A3B8),
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),

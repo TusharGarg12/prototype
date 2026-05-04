@@ -1,35 +1,69 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:provider/provider.dart';
 import '../../components/glass_card.dart';
 import '../../components/quick_action_tile.dart';
 import '../../components/status_pill.dart';
 import '../../components/global_glass_scaffold.dart';
 import '../../components/chatbot_overlay.dart';
+import '../../core/providers/auth_provider.dart';
+import '../../core/models/menu_model.dart';
+import '../../core/services/menu_service.dart';
 
 class StudentDashboardScreen extends StatefulWidget {
   const StudentDashboardScreen({super.key});
-
   @override
   State<StudentDashboardScreen> createState() => _StudentDashboardScreenState();
 }
 
 class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   bool _showChatbot = false;
+  List<MenuModel> _todayMenus = [];
+  bool _menuLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTodayMenu();
+    // Refresh user profile for updated reward points asynchronously
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<AuthProvider>().refreshProfile();
+      }
+    });
+  }
+
+  Future<void> _loadTodayMenu() async {
+    try {
+      final menus = await menuService.getTodayMenu();
+      if (mounted) setState(() { _todayMenus = menus; _menuLoading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _menuLoading = false);
+    }
+  }
+
+  String _greeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
 
   @override
   Widget build(BuildContext context) {
+    final user = context.watch<AuthProvider>().user;
+
     return GlobalGlassScaffold(
       child: Stack(
         children: [
-          // Scrollable Content
           Positioned.fill(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(16, 24, 16, 100),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _buildHeader(context),
+                  _buildHeader(context, user),
                   const SizedBox(height: 24),
                   _buildLiveOccupancy(context),
                   const SizedBox(height: 16),
@@ -42,80 +76,66 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
               ),
             ),
           ),
-          
-          // Bottom Navigation
+
           Positioned(
-            bottom: 8,
-            left: 16,
-            right: 16,
+            bottom: 8, left: 16, right: 16,
             child: _buildBottomNav(context),
           ),
-          
-          // Floating Action Button
+
           if (!_showChatbot)
             Positioned(
-              bottom: 80,
-              right: 16,
+              bottom: 80, right: 16,
               child: GestureDetector(
                 onTap: () => setState(() => _showChatbot = true),
                 child: Container(
-                  width: 56,
-                  height: 56,
+                  width: 56, height: 56,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: const Color(0xFFDBEAFE).withOpacity(0.70),
                     border: Border.all(color: const Color(0xFFBFDBFE), width: 0.5),
-                    boxShadow: [
-                      BoxShadow(color: const Color(0xFF3B82F6).withOpacity(0.20), blurRadius: 16, offset: const Offset(0, 8)),
-                    ],
+                    boxShadow: [BoxShadow(color: const Color(0xFF3B82F6).withOpacity(0.20), blurRadius: 16, offset: const Offset(0, 8))],
                   ),
                   alignment: Alignment.center,
                   child: const Text('🤖', style: TextStyle(fontSize: 24)),
                 ),
               ),
             ),
-            
-          // Chatbot Overlay
+
           if (_showChatbot)
             Positioned.fill(
-              child: ChatbotOverlay(
-                onClose: () => setState(() => _showChatbot = false),
-              ),
+              child: ChatbotOverlay(onClose: () => setState(() => _showChatbot = false)),
             ),
         ],
       ),
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, user) {
+    final name    = user?.name ?? 'Student';
+    final initials = user?.initials ?? 'S';
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Row(
           children: [
             Container(
-              width: 36,
-              height: 36,
+              width: 36, height: 36,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.white.withOpacity(0.70),
                 border: Border.all(color: Colors.white.withOpacity(0.80), width: 0.5),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 4)),
-                ],
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 4))],
               ),
               alignment: Alignment.center,
-              child: const Text(
-                'AM',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFF1E293B)),
-              ),
+              child: Text(initials, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFF1E293B))),
             ),
             const SizedBox(width: 12),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Text('Good morning', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: Color(0xFF475569))),
-                Text('Aryan Mehta', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
+              children: [
+                Text(_greeting(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: Color(0xFF475569))),
+                Text(name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
               ],
             ),
           ],
@@ -123,15 +143,12 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
         Stack(
           children: [
             Container(
-              width: 36,
-              height: 36,
+              width: 36, height: 36,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.white.withOpacity(0.60),
                 border: Border.all(color: Colors.white.withOpacity(0.70), width: 0.5),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 12, offset: const Offset(0, 4)),
-                ],
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 12, offset: const Offset(0, 4))],
               ),
               child: Material(
                 color: Colors.transparent,
@@ -143,16 +160,10 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
               ),
             ),
             Positioned(
-              top: 0,
-              right: 0,
+              top: 0, right: 0,
               child: Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF43F5E),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 1),
-                ),
+                width: 8, height: 8,
+                decoration: BoxDecoration(color: const Color(0xFFF43F5E), shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1)),
               ),
             ),
           ],
@@ -167,15 +178,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'LIVE OCCUPANCY',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF475569),
-              letterSpacing: 1,
-            ),
-          ),
+          const Text('LIVE OCCUPANCY', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF475569), letterSpacing: 1)),
           const SizedBox(height: 12),
           Row(
             crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -189,25 +192,20 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           const SizedBox(height: 12),
           Container(
             height: 4,
-            decoration: BoxDecoration(
-              color: const Color(0xFFE2E8F0).withOpacity(0.6),
-              borderRadius: BorderRadius.circular(2),
-            ),
+            decoration: BoxDecoration(color: const Color(0xFFE2E8F0).withOpacity(0.6), borderRadius: BorderRadius.circular(2)),
             child: Row(
               children: [
                 Expanded(
                   flex: 68,
                   child: Container(
                     decoration: BoxDecoration(
-                      color: const Color(0xFF34D399), // emerald-400
+                      color: const Color(0xFF34D399),
                       borderRadius: BorderRadius.circular(2),
-                      boxShadow: [
-                        BoxShadow(color: const Color(0xFF34D399).withOpacity(0.35), blurRadius: 12),
-                      ],
+                      boxShadow: [BoxShadow(color: const Color(0xFF34D399).withOpacity(0.35), blurRadius: 12)],
                     ),
                   ),
                 ),
-                Expanded(flex: 32, child: const SizedBox()),
+                const Expanded(flex: 32, child: SizedBox()),
               ],
             ),
           ),
@@ -227,11 +225,11 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   Widget _buildQuickActions(BuildContext context) {
     return Row(
       children: [
-        Expanded(child: QuickActionTile(icon: const Icon(LucideIcons.qrCode), label: 'QR Code', color: TileColor.blue, onClick: () => context.go('/dashboard/qr'))),
+        Expanded(child: QuickActionTile(icon: const Icon(LucideIcons.qrCode),      label: 'QR Code',  color: TileColor.blue,   onClick: () => context.go('/dashboard/qr'))),
         const SizedBox(width: 8),
-        Expanded(child: QuickActionTile(icon: const Icon(LucideIcons.bookOpen), label: 'Menu', color: TileColor.green, onClick: () => context.go('/dashboard/menu'))),
+        Expanded(child: QuickActionTile(icon: const Icon(LucideIcons.bookOpen),    label: 'Menu',     color: TileColor.green,  onClick: () => context.go('/dashboard/menu'))),
         const SizedBox(width: 8),
-        Expanded(child: QuickActionTile(icon: const Icon(LucideIcons.calendar), label: 'Leave', color: TileColor.amber, onClick: () => context.go('/dashboard/leave'))),
+        Expanded(child: QuickActionTile(icon: const Icon(LucideIcons.calendar),    label: 'Leave',    color: TileColor.amber,  onClick: () => context.go('/dashboard/leave'))),
         const SizedBox(width: 8),
         Expanded(child: QuickActionTile(icon: const Icon(LucideIcons.messageCircle), label: 'Feedback', color: TileColor.purple, onClick: () => context.go('/dashboard/feedback'))),
       ],
@@ -239,7 +237,12 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   }
 
   Widget _buildMenuCard(BuildContext context) {
-    final dishes = ['Dal Makhani', 'Jeera Rice', 'Roti', 'Salad', 'Raita'];
+    // Find today's lunch menu, fallback to first menu
+    final menu = _todayMenus.firstWhere(
+      (m) => m.mealSlot == 'LUNCH',
+      orElse: () => _todayMenus.isNotEmpty ? _todayMenus.first : MenuModel(id: '', mealSlot: 'LUNCH', menuDate: DateTime.now(), isPublished: false, menuItems: []),
+    );
+    final dishes = menu.dishes.map((d) => d.name).take(6).toList();
 
     return GlassCard(
       padding: const EdgeInsets.all(16),
@@ -256,27 +259,19 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 8, offset: const Offset(0, 2))],
                 ),
-                child: const Text('Lunch', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.50),
-                  border: Border.all(color: Colors.white.withOpacity(0.60), width: 0.5),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4, offset: const Offset(0, 1))],
-                ),
-                child: const Text('Dinner', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
+                child: Text(menu.slotLabel, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: dishes.map((dish) {
-              return Container(
+          if (_menuLoading)
+            const Center(child: SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)))
+          else if (dishes.isEmpty)
+            const Text('No menu published yet', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)))
+          else
+            Wrap(
+              spacing: 6, runSpacing: 6,
+              children: dishes.map((name) => Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.50),
@@ -284,18 +279,13 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                   borderRadius: BorderRadius.circular(12),
                   boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4, offset: const Offset(0, 1))],
                 ),
-                child: Text(dish, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w500, color: Color(0xFF1E293B))),
-              );
-            }).toList(),
-          ),
+                child: Text(name, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w500, color: Color(0xFF1E293B))),
+              )).toList(),
+            ),
           const SizedBox(height: 12),
           TextButton(
             onPressed: () => context.go('/dashboard/menu'),
-            style: TextButton.styleFrom(
-              padding: EdgeInsets.zero,
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
+            style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
             child: const Text('View all →', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: Color(0xFF3B82F6))),
           ),
         ],
@@ -304,6 +294,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   }
 
   Widget _buildRewardCard(BuildContext context) {
+    final rewardPoints = context.watch<AuthProvider>().user?.rewardPoints ?? 0;
     return GlassCard(
       tint: GlassTint.warning,
       padding: const EdgeInsets.all(16),
@@ -316,15 +307,15 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
             children: [
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text('Reward Points', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFFB45309))),
-                  SizedBox(height: 4),
-                  Text('1,240', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w300, color: Color(0xFF78350F), letterSpacing: -0.5)),
+                children: [
+                  const Text('Reward Points', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFFB45309))),
+                  const SizedBox(height: 4),
+                  Text('$rewardPoints', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w300, color: Color(0xFF78350F), letterSpacing: -0.5)),
                 ],
               ),
-              Column(
+              const Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
-                children: const [
+                children: [
                   Text('Streak', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFFB45309))),
                   SizedBox(height: 4),
                   Text('12 days', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500, color: Color(0xFFD97706))),
@@ -346,10 +337,10 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _buildNavItem(icon: LucideIcons.home, label: 'Home', isActive: true, onTap: () {}),
-          _buildNavItem(icon: LucideIcons.utensils, label: 'Vote', onTap: () => context.go('/dashboard/voting')),
-          _buildNavItem(icon: LucideIcons.gift, label: 'Rewards', onTap: () => context.go('/dashboard/surge')),
-          _buildNavItem(icon: LucideIcons.user, label: 'Profile', onTap: () => context.push('/profile')),
+          _buildNavItem(icon: LucideIcons.home,     label: 'Home',    isActive: true, onTap: () {}),
+          _buildNavItem(icon: LucideIcons.utensils,  label: 'Vote',    onTap: () => context.go('/dashboard/voting')),
+          _buildNavItem(icon: LucideIcons.gift,      label: 'Rewards', onTap: () => context.go('/dashboard/surge')),
+          _buildNavItem(icon: LucideIcons.user,      label: 'Profile', onTap: () => context.push('/profile')),
         ],
       ),
     );
@@ -368,14 +359,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           else
             const SizedBox(height: 4),
           const SizedBox(height: 2),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 9,
-              fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-              color: isActive ? const Color(0xFF0F172A) : const Color(0xFF475569),
-            ),
-          ),
+          Text(label, style: TextStyle(fontSize: 9, fontWeight: isActive ? FontWeight.w600 : FontWeight.w500, color: isActive ? const Color(0xFF0F172A) : const Color(0xFF475569))),
         ],
       ),
     );

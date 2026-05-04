@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../components/global_glass_scaffold.dart';
+import '../../core/providers/auth_provider.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -19,13 +21,33 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _handleSendOtp() {
-    // In a real app, send OTP here. We just navigate.
-    context.push('/otp?role=$_selectedRole');
+  Future<void> _handleSendOtp() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter your email')),
+      );
+      return;
+    }
+
+    final auth = context.read<AuthProvider>();
+    final ok = await auth.requestOtp(email);
+
+    if (!mounted) return;
+
+    if (ok) {
+      context.push('/otp?email=${Uri.encodeComponent(email)}&role=$_selectedRole');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(auth.error ?? 'Failed to send OTP'), backgroundColor: Colors.redAccent),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final loading = context.watch<AuthProvider>().loading;
+
     return GlobalGlassScaffold(
       child: Center(
         child: SingleChildScrollView(
@@ -34,8 +56,7 @@ class _LoginScreenState extends State<LoginScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                width: 64,
-                height: 64,
+                width: 64, height: 64,
                 margin: const EdgeInsets.only(bottom: 32),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.60),
@@ -43,26 +64,22 @@ class _LoginScreenState extends State<LoginScreen> {
                   border: Border.all(color: Colors.white.withOpacity(0.70), width: 0.5),
                   boxShadow: [
                     BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 24, offset: const Offset(0, 8)),
-                    BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 8, offset: const Offset(0, 4)),
                   ],
                 ),
                 alignment: Alignment.center,
                 child: const Text('SM', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w300, color: Color(0xFF1E293B))),
               ),
-              
+
               const Text('Sign in to SMMS', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w400, color: Color(0xFF0F172A), letterSpacing: -0.5)),
               const SizedBox(height: 48),
-              
+
               Container(
-                width: double.infinity,
-                height: 50,
+                width: double.infinity, height: 50,
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.60),
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: Colors.white.withOpacity(0.70), width: 0.5),
-                  boxShadow: [
-                    BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 16, offset: const Offset(0, 4)),
-                  ],
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 16, offset: const Offset(0, 4))],
                 ),
                 child: TextField(
                   controller: _emailController,
@@ -77,7 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              
+
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -94,13 +111,12 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ],
               ),
-              
+
               const SizedBox(height: 24),
               SizedBox(
-                width: double.infinity,
-                height: 50,
+                width: double.infinity, height: 50,
                 child: ElevatedButton(
-                  onPressed: _handleSendOtp,
+                  onPressed: loading ? null : _handleSendOtp,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white.withOpacity(0.70),
                     foregroundColor: const Color(0xFF1D4ED8),
@@ -110,10 +126,12 @@ class _LoginScreenState extends State<LoginScreen> {
                       side: const BorderSide(color: Color(0xFF93C5FD), width: 0.5),
                     ),
                   ),
-                  child: const Text('Send OTP', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  child: loading
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Send OTP', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                 ),
               ),
-              
+
               const SizedBox(height: 32),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 32),

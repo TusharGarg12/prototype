@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../components/glass_card.dart';
+import '../../core/services/qr_service.dart';
 
 class QRScannerScreen extends StatefulWidget {
   const QRScannerScreen({super.key});
@@ -13,21 +15,83 @@ class QRScannerScreen extends StatefulWidget {
 class _QRScannerScreenState extends State<QRScannerScreen> with SingleTickerProviderStateMixin {
   bool _isScanning = true;
   Map<String, dynamic>? _scanResult;
+  bool _isLoading = false;
   late AnimationController _animationController;
+  final MobileScannerController _cameraController = MobileScannerController();
 
   @override
   void initState() {
     super.initState();
     _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
+        vsync: this,
+        duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
   }
 
   @override
   void dispose() {
     _animationController.dispose();
+    _cameraController.dispose();
     super.dispose();
+  }
+
+  Future<void> _handleBarcode(BarcodeCapture capture) async {
+    if (!_isScanning || _isLoading) return;
+    
+    final List<Barcode> barcodes = capture.barcodes;
+    if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
+      final String rawValue = barcodes.first.rawValue!;
+      await _validateTokenReal(rawValue);
+    }
+  }
+
+  Future<void> _validateTokenReal(String token) async {
+    setState(() {
+      _isScanning = false;
+      _isLoading = true;
+    });
+
+    try {
+      final res = await qrService.validatePass(token, counterId: 'counter_1');
+      // If success, backend returns a log or success message
+      setState(() {
+        _isLoading = false;
+        _scanResult = {
+          'type': 'verified',
+          'student': {
+            'name': 'Student ID', 
+            'roll': res['log']?['studentId'] ?? 'Verified',
+            'avatar': 'OK'
+          },
+        };
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        final errorString = e.toString().toLowerCase();
+        if (errorString.contains('already used') || errorString.contains('replay')) {
+            _scanResult = {
+              'type': 'already_used',
+              'student': {
+                'name': 'Duplicate Scan',
+                'roll': 'Invalid',
+                'avatar': 'ERR',
+              },
+              'time': 'Just now',
+              'counter': 1,
+            };
+        } else {
+             _scanResult = {
+              'type': 'on_leave',
+              'student': {
+                'name': 'Invalid Pass',
+                'roll': 'Failed Validation',
+                'avatar': 'ERR',
+              }
+            };
+        }
+      });
+    }
   }
 
   void _handleSimulateScan(String type) {
@@ -127,7 +191,15 @@ class _QRScannerScreenState extends State<QRScannerScreen> with SingleTickerProv
                               _buildCorner(Alignment.topRight, const BorderRadius.only(topRight: Radius.circular(24))),
                               _buildCorner(Alignment.bottomLeft, const BorderRadius.only(bottomLeft: Radius.circular(24))),
                               _buildCorner(Alignment.bottomRight, const BorderRadius.only(bottomRight: Radius.circular(24))),
-                              Center(child: Icon(LucideIcons.camera, size: 64, color: Colors.white.withOpacity(0.4))),
+                              
+                              // Real camera scanner mapped beneath the animated line
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(24),
+                                child: MobileScanner(
+                                  controller: _cameraController,
+                                  onDetect: _handleBarcode,
+                                ),
+                              ),
                               
                               // Animated scan line
                               AnimatedBuilder(

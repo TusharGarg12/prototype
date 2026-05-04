@@ -382,6 +382,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 const SizedBox(height: 8),
                                 _buildMenuBtn('QR Scanner', () { setState(() => _showMobileMenu = false); context.go('/admin/qr-scanner'); }),
                                 _buildMenuBtn('Menu Management', () { setState(() => _showMobileMenu = false); context.go('/admin/menu-management'); }),
+                                _buildMenuBtn('Leave Approvals', () { setState(() => _showMobileMenu = false); context.go('/admin/leave-approvals'); }),
                                 _buildMenuBtn('Analytics', () { setState(() => _showMobileMenu = false); context.go('/admin/analytics'); }),
                                 _buildMenuBtn('Kitchen Display', () { setState(() => _showMobileMenu = false); context.push('/kitchen?role=admin'); }),
                                 _buildMenuBtn('Digital Twin', () { setState(() => _showMobileMenu = false); context.go('/admin/simulation'); }),

@@ -1,9 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../components/glass_card.dart';
 import '../../components/status_pill.dart';
 import '../../components/global_glass_scaffold.dart';
+import '../../core/services/menu_service.dart';
+import '../../core/api/api_client.dart';
+import '../../core/api/api_endpoints.dart';
 
 class KitchenDisplayScreen extends StatefulWidget {
   final String userRole;
@@ -16,20 +20,56 @@ class KitchenDisplayScreen extends StatefulWidget {
 
 class _KitchenDisplayScreenState extends State<KitchenDisplayScreen> {
   bool _showLogoutConfirm = false;
+  bool _isLoading = true;
+  Timer? _refreshTimer;
 
-  final List<Map<String, dynamic>> _dishes = [
-    { 'name': 'Dal Makhani', 'quantity': 120, 'served': 85, 'status': 'serving' },
-    { 'name': 'Jeera Rice', 'quantity': 150, 'served': 98, 'status': 'serving' },
-    { 'name': 'Paneer Tikka', 'quantity': 80, 'served': 80, 'status': 'out' },
-    { 'name': 'Roti', 'quantity': 200, 'served': 134, 'status': 'ready' },
-    { 'name': 'Mix Veg', 'quantity': 100, 'served': 45, 'status': 'ready' },
-    { 'name': 'Raita', 'quantity': 90, 'served': 52, 'status': 'serving' },
-    { 'name': 'Salad', 'quantity': 110, 'served': 78, 'status': 'serving' },
-    { 'name': 'Gulab Jamun', 'quantity': 150, 'served': 12, 'status': 'delayed' },
-  ];
+  List<Map<String, dynamic>> _dishes = [];
+  int currentOccupancy = 0;
+  int peakOccupancy = 500;
 
-  final int currentOccupancy = 234;
-  final int peakOccupancy = 350;
+  @override
+  void initState() {
+    super.initState();
+    _fetchLiveKdsData();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) => _fetchLiveKdsData());
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchLiveKdsData() async {
+    try {
+      // 1. Fetch menu and map to _dishes dict
+      final menus = await menuService.getTodayMenu();
+      if (menus.isNotEmpty) {
+        // Fallback or find active meal based on time, using index 0 for simplicity right now
+        final activeMenu = menus.first;
+        final List<Map<String, dynamic>> newDishes = [];
+        for (var dish in activeMenu.dishes) {
+            newDishes.add({
+              'name': dish.name, 
+              'quantity': 150, 
+              'served': 0, 
+              'status': 'serving' 
+            });
+        }
+        _dishes = newDishes.isNotEmpty ? newDishes : []; // Keep logic simple
+      }
+      
+      // 2. Fetch footfall api
+      final footfallData = await api.get(kFootfall);
+      setState(() {
+        currentOccupancy = footfallData['currentOccupancy'] ?? 0;
+        peakOccupancy = footfallData['peakOccupancy'] ?? 500;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
