@@ -221,7 +221,6 @@ def generate_mock_data(output_path="data/mock_attendance.csv"):
             pct   = float(np.clip(base_pct + noise, 0.05, 1.0))
 
             records.append({
-                "date":              date_str,
                 "day_of_week":       dow,
                 "month":             month,
                 "meal_slot":         meal,
