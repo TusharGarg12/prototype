@@ -1,6 +1,4 @@
 import { prisma } from '../../config/prisma';
-import { generateOtp, hashOtp, compareOtp } from '../../utils/otpUtil';
-import { sendOtpEmail } from '../../utils/mailer';
 import {
   signAccessToken,
   generateRefreshToken,
@@ -11,75 +9,11 @@ import { Role } from '../../config/enums';
 
 const REFRESH_EXPIRY_DAYS = 7;
 
-// ── Request OTP ───────────────────────────────────────────────────────────────
-export const requestOtp = async (email: string) => {
-  // Auto-provision user on first login (college email = identity)
-  let user = await prisma.user.findUnique({ where: { email } });
-  if (!user) {
-    user = await prisma.user.create({
-      data: { email, name: email.split('@')[0], role: Role.STUDENT },
-    });
-  }
-
-  if (!user.isActive) throw new Error('Account is deactivated');
-
-  // Invalidate all previous unused OTPs for this user
-  await prisma.otpRecord.updateMany({
-    where: { userId: user.id, used: false },
-    data: { used: true },
-  });
-
-  const otp = generateOtp();
-  const hashedOtp = await hashOtp(otp);
-  const expiresAt = new Date(
-    Date.now() + env.OTP_EXPIRY_MINUTES * 60 * 1000,
-  );
-
-  await prisma.otpRecord.create({
-    data: { userId: user.id, otp: hashedOtp, expiresAt },
-  });
-
-  // ── Send Email via SMTP ──────────
-  await sendOtpEmail(email, otp);
-  // Log locally just in case for dev server readability (optional)
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`\n[OTP DEBUG] ✉️  To: ${email}  |  OTP: ${otp}  |  Expires in ${env.OTP_EXPIRY_MINUTES} min\n`);
-  }
-
-  return { message: 'OTP sent to email' };
-};
-
-// ── Verify OTP ────────────────────────────────────────────────────────────────
-export const verifyOtp = async (email: string, otp: string) => {
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) throw new Error('User not found');
-  if (!user.isActive) throw new Error('Account is deactivated');
-
-  const record = await prisma.otpRecord.findFirst({
-    where: {
-      userId: user.id,
-      used: false,
-      expiresAt: { gt: new Date() },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-  if (!record) throw new Error('OTP expired or not found');
-
-  const valid = await compareOtp(otp, record.otp);
-  if (!valid) throw new Error('Invalid OTP');
-
-  // Mark OTP as consumed
-  await prisma.otpRecord.update({
-    where: { id: record.id },
-    data: { used: true },
-  });
-
+const issueTokensForUser = async (user: { id: string; email: string; name: string | null; role: string; rewardPoints: number }) => {
   const accessToken = signAccessToken({ userId: user.id, role: user.role as Role });
   const { raw: refreshToken, hashed } = generateRefreshToken();
+  const expiresAt = new Date(Date.now() + REFRESH_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
 
-  const expiresAt = new Date(
-    Date.now() + REFRESH_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
-  );
   await prisma.refreshToken.create({
     data: { userId: user.id, token: hashed, expiresAt },
   });
@@ -95,6 +29,45 @@ export const verifyOtp = async (email: string, otp: string) => {
       rewardPoints: user.rewardPoints,
     },
   };
+};
+
+// ── Direct login ──────────────────────────────────────────────────────────────
+export const login = async (email: string, role: string) => {
+  let user = await prisma.user.findUnique({ where: { email } });
+  if (!user) {
+    user = await prisma.user.create({
+      data: { email, name: email.split('@')[0], role: role as Role },
+    });
+  } else if (user.role !== role) {
+    user = await prisma.user.update({
+      where: { email },
+      data: { role: role as Role },
+    });
+  }
+
+  if (!user.isActive) throw new Error('Account is deactivated');
+  return issueTokensForUser(user);
+};
+
+// ── Request OTP ───────────────────────────────────────────────────────────────
+export const requestOtp = async (email: string) => {
+  let user = await prisma.user.findUnique({ where: { email } });
+  if (!user) {
+    user = await prisma.user.create({
+      data: { email, name: email.split('@')[0], role: Role.STUDENT },
+    });
+  }
+
+  if (!user.isActive) throw new Error('Account is deactivated');
+  return { message: 'OTP login is disabled. Use direct login instead.' };
+};
+
+// ── Verify OTP ────────────────────────────────────────────────────────────────
+export const verifyOtp = async (email: string, otp: string) => {
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) throw new Error('User not found');
+  if (!user.isActive) throw new Error('Account is deactivated');
+  return issueTokensForUser(user);
 };
 
 // ── Refresh Access Token ──────────────────────────────────────────────────────

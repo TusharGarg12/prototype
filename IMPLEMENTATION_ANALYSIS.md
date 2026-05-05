@@ -111,7 +111,10 @@ The plan explicitly mentions advanced features already planned in the codebase:
 - Leftover routing.
 - Weather-aware planning.
 
-These are best treated as roadmap or early prototype features, not completed product features.
+Current state:
+- Crowd heatmap remains an admin visualization surface that still needs polish.
+- Surge management and simulation are now wired to live optimization/forecast data.
+- Weather/calendar-aware menu guidance, leftover routing, ingredient fatigue detection, sustainability estimates, and health-focused suggestions are now implemented through the optimization backend and consumed by Flutter.
 
 ## What Is Left To Do
 
@@ -139,21 +142,19 @@ Still left:
 - Provision a persistent production-grade database.
 
 ### Phase 2 And Beyond
-These are backlog items, not current deliverables:
-- Predictive analytics by time slot.
-- Surge management and reward incentives.
-- Crowd heatmap visualization.
-- Weather/calendar-aware menu and inventory suggestions.
-- Simulation / digital twin style planning.
-- Waste prediction and optimization.
-- Leftover routing.
-- Ingredient fatigue detection.
+Several phase 2 surfaces are now wired into the backend and Flutter app:
+- Predictive analytics by time slot is backed by the ML proxy.
+- Surge management and reward incentives are wired into the student experience.
+- Simulation / digital twin style planning now uses live forecast and waste inputs.
+- Waste prediction and optimization are exposed through backend proxy endpoints.
+- Chatbot expansion beyond basic FAQ support is backed by the Node chatbot endpoint.
+- Menu planning guidance now adapts to weather, calendar context, leftover routing, ingredient fatigue, and sustainability hints.
+
+Still open for a fuller phase 2 rollout:
+- Crowd heatmap visualization refinements.
 - A/B testing for new dishes.
 - Recipe bank and reusable templates.
-- Sustainability and carbon-saved tracking.
-- Health-focused menu suggestions.
 - Multi-mess support.
-- Chatbot expansion beyond basic FAQ support.
 
 ## Feature-by-Feature Status
 

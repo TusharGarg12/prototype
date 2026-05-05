@@ -5,6 +5,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../components/glass_card.dart';
 import '../../components/status_pill.dart';
 import '../../components/global_glass_scaffold.dart';
+import '../../core/services/optimization_service.dart';
 
 class SurgeManagementScreen extends StatefulWidget {
   const SurgeManagementScreen({super.key});
@@ -18,11 +19,14 @@ class _SurgeManagementScreenState extends State<SurgeManagementScreen> {
   int _minutes = 23;
   int _seconds = 40;
   bool _isActive = true;
+  bool _isLoadingPlan = true;
+  Map<String, dynamic>? _surgePlan;
   Timer? _timer;
 
   @override
   void initState() {
     super.initState();
+    _loadSurgePlan();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
       setState(() {
@@ -49,6 +53,40 @@ class _SurgeManagementScreenState extends State<SurgeManagementScreen> {
     super.dispose();
   }
 
+  Future<void> _loadSurgePlan() async {
+    try {
+      final plan = await optimizationService.getSurgeRecommendation(
+        date: _formatDate(DateTime.now()),
+        mealSlot: _currentMealSlot(),
+        totalStudents: 600,
+        totalCapacity: 600,
+      );
+      if (!mounted) return;
+      setState(() {
+        _surgePlan = plan;
+        _isLoadingPlan = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isLoadingPlan = false);
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    final y = date.year.toString().padLeft(4, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
+  String _currentMealSlot() {
+    final hour = DateTime.now().hour;
+    if (hour < 11) return 'BREAKFAST';
+    if (hour < 16) return 'LUNCH';
+    if (hour < 18) return 'SNACKS';
+    return 'DINNER';
+  }
+
   void _handleAccept() {
     setState(() {
       _isActive = false;
@@ -57,6 +95,23 @@ class _SurgeManagementScreenState extends State<SurgeManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final forecast = (_surgePlan?['forecast'] as Map<String, dynamic>?) ?? const {};
+    final recommendation = (_surgePlan?['recommendation'] as Map<String, dynamic>?) ?? const {};
+    final expectedHeadcount = (forecast['expectedHeadcount'] as num?)?.toDouble() ?? 0;
+    final occupancyPercent = (recommendation['occupancyPercent'] as num?)?.toDouble() ?? (expectedHeadcount / 600.0) * 100;
+    final crowdLabel = occupancyPercent >= 75
+        ? 'High'
+        : occupancyPercent >= 45
+            ? 'Moderate'
+            : 'Low';
+    final rewardSlots = (recommendation['recommendedRewardSlots'] as List<dynamic>?) ?? const [];
+    final bonusPoints = rewardSlots.isNotEmpty && rewardSlots.first is Map
+        ? (((rewardSlots.first as Map)['bonusPoints'] as num?)?.toInt() ?? 30)
+        : 30;
+    final mealSlot = (forecast['mealSlot'] as String?) ?? _currentMealSlot();
+    final analysis = (recommendation['analysis'] as String?) ??
+        'A live surge recommendation will appear here once the backend responds.';
+
     return GlobalGlassScaffold(
       child: SafeArea(
         child: Column(
@@ -173,10 +228,10 @@ class _SurgeManagementScreenState extends State<SurgeManagementScreen> {
                                             Row(
                                               crossAxisAlignment: CrossAxisAlignment.baseline,
                                               textBaseline: TextBaseline.alphabetic,
-                                              children: const [
-                                                Text('+30', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w300, color: Color(0xFFD97706))),
-                                                SizedBox(width: 4),
-                                                Text('pts', style: TextStyle(fontSize: 14, color: Color(0xFFB45309))),
+                                              children: [
+                                                Text('+$bonusPoints', style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w300, color: Color(0xFFD97706))),
+                                                const SizedBox(width: 4),
+                                                const Text('pts', style: TextStyle(fontSize: 14, color: Color(0xFFB45309))),
                                               ],
                                             ),
                                           ],
@@ -192,12 +247,13 @@ class _SurgeManagementScreenState extends State<SurgeManagementScreen> {
                                           children: [
                                             const Text('Current Crowd', style: TextStyle(fontSize: 12, color: Color(0xFF334155))),
                                             const SizedBox(height: 8),
-                                            Row(
-                                              crossAxisAlignment: CrossAxisAlignment.baseline,
-                                              textBaseline: TextBaseline.alphabetic,
-                                              children: const [
-                                                Text('Low', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w300, color: Color(0xFF059669))),
-                                              ],
+                                            Text(
+                                              crowdLabel,
+                                              style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w300, color: Color(0xFF059669)),
+                                            ),
+                                            Text(
+                                              _isLoadingPlan ? 'Loading recommendation...' : '${occupancyPercent.toStringAsFixed(0)}% occupancy',
+                                              style: const TextStyle(fontSize: 12, color: Color(0xFF059669)),
                                             ),
                                           ],
                                         ),
@@ -238,11 +294,13 @@ class _SurgeManagementScreenState extends State<SurgeManagementScreen> {
                           children: [
                             const Text('How it works', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
                             const SizedBox(height: 12),
-                            _buildInstructionStep('1', 'Visit the mess during off-peak hours (now until ${_minutes.toString().padLeft(2, '0')}:${_seconds.toString().padLeft(2, '0')})'),
+                            _buildInstructionStep('1', 'Visit the mess during the ${mealSlot.toLowerCase()} surge window when crowd pressure is lower.'),
                             const SizedBox(height: 12),
                             _buildInstructionStep('2', 'Scan your QR code at the counter'),
                             const SizedBox(height: 12),
-                            _buildInstructionStep('3', 'Earn +30 bonus reward points automatically'),
+                            _buildInstructionStep('3', 'Earn +$bonusPoints bonus reward points automatically'),
+                            const SizedBox(height: 12),
+                            _buildInstructionStep('4', analysis),
                           ],
                         ),
                       ),

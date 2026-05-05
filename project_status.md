@@ -45,28 +45,32 @@ The Phase 1 MVP is implemented across the Flutter app and backend. The remaining
 - **Kitchen Display Screen (KDS):** Implemented with live menu fetching, active meal slot detection, and attendance-based serving indicators.
 
 ### 3. Production Readiness & Polish
-- **Email Delivery:** Replace the `console.log` mock in `auth.service.ts` with a real SMTP provider (e.g., SendGrid, Nodemailer) to actually email OTPs.
-- **PostgreSQL Switch:** Revert the Prisma provider from `sqlite` to `postgresql` and provision a live database for staging/production.
+- **Email Delivery:** SMTP delivery is wired through Nodemailer and ready for provider credentials.
+- **PostgreSQL Switch:** Prisma is already configured for PostgreSQL; deployment validation remains.
 
 ## 🔴 Remaining After Phase 1
 
 These are no longer core MVP blockers; they are the next hardening and expansion steps.
 
 ### 1. Production Readiness
-- SMTP-based OTP delivery.
-- PostgreSQL-backed deployment.
+- SMTP-based OTP delivery is wired.
+- PostgreSQL-backed deployment is configured but still needs a live environment.
 
 ### 2. Phase 2 And Beyond
-- Predictive analytics.
-- Surge management.
-- Crowd heatmap visualization.
-- Weather/calendar integration.
+- Predictive analytics is now proxied to the ML backend.
+- Surge management and reward incentives are wired into Flutter.
+- Simulation / digital twin planning is now backend-backed.
+- Chatbot responses are no longer canned-only.
+- Weather/calendar-aware menu guidance, leftover routing, ingredient fatigue detection, sustainability estimates, and health-focused menu suggestions are now live through the optimization backend.
+- Crowd heatmap visualization still needs polish and UX refinement.
+- Multi-mess support, A/B testing, and reusable recipe/template tooling remain open.
 
 ---
 
 ## ⏭️ Phase 2 & Beyond (Smart Features)
-*Now that Phase 1 is in place, the backlog includes:*
-- **Predictive Analytics:** Footfall prediction by time slot.
-- **Surge Management:** Reward points for eating during off-peak hours.
-- **Crowd Heatmap:** Visualizing mess congestion.
-- **Weather/Calendar Integration:** Smart menu and inventory suggestions based on external data.
+*Now that Phase 1 is in place, the feature set is moving into live phase 2 wiring:*
+- **Predictive Analytics:** Footfall prediction by time slot is backed by the ML proxy.
+- **Surge Management:** Reward points for eating during off-peak hours are wired into the student screen.
+- **Crowd Heatmap:** Visualization is still present, with more refinement left for the admin dashboard.
+- **Weather/Calendar Integration:** Menu guidance now adapts to weather and calendar context, including leftover routing and ingredient fatigue hints.
+- **Sustainability:** Waste and carbon-saved estimates are now surfaced from optimization guidance.

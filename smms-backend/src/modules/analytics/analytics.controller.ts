@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../../config/prisma';
 import { ok } from '../../utils/apiResponse';
 import { getCurrentMealSlot, todayDate } from '../../utils/mealWindow';
+import { forecastHeadcount } from '../../utils/mlBackend';
 import scenarios from '../../data/attendance_scenarios.json';
 import calendar from '../../data/calendar_2025.json';
 
@@ -125,6 +126,66 @@ export const getPredictions = async (req: Request, res: Response, next: NextFunc
     const weather = (req.query.weather as string | undefined) ?? undefined;
     const exam = req.query.exam === 'true' ? true : undefined;
     const fest = req.query.fest === 'true' ? true : undefined;
+    const totalStudents = Math.max(1, Number(req.query.totalStudents ?? 600));
+    const academicEvent = (req.query.academicEvent as string | undefined) ?? (req.query.event as string | undefined);
+
+    const meals: MealSlot[] = ['BREAKFAST', 'LUNCH', 'DINNER'];
+
+    try {
+      const predictions: Array<{ date: string; mealSlot: MealSlot; predictedCount: number; scenario: string; confidence?: number }> = [];
+
+      for (let i = 0; i < days; i += 1) {
+        const date = new Date(parseDate(start).getTime() + i * 24 * 60 * 60 * 1000);
+        const dateStr = formatDate(date);
+
+        for (const mealSlot of meals) {
+          const forecast = await forecastHeadcount({
+            date: dateStr,
+            meal_slot: mealSlot,
+            total_students: totalStudents,
+            academic_event: academicEvent,
+            is_raining: weather === 'rain',
+            exam,
+            fest,
+          });
+
+          const expected = Number(
+            forecast.expected_headcount ??
+            forecast.predicted_headcount ??
+            forecast.headcount ??
+            forecast.predictedCount ??
+            totalStudents,
+          );
+          const factors = Array.isArray(forecast.determining_factors)
+            ? forecast.determining_factors
+            : Array.isArray(forecast.factors)
+              ? forecast.factors
+              : [];
+          const scenario = factors.length > 0
+            ? factors.map((item) => String(item)).join(', ')
+            : 'ML forecast';
+          const confidence = Number(
+            forecast.confidence_level ??
+            forecast.confidence ??
+            forecast.confidenceScore ??
+            0,
+          );
+
+          predictions.push({
+            date: dateStr,
+            mealSlot,
+            predictedCount: Number.isFinite(expected) ? Math.max(0, Math.round(expected)) : 0,
+            scenario,
+            confidence: Number.isFinite(confidence) ? confidence : undefined,
+          });
+        }
+      }
+
+      ok(res, { predictions, start, days }, 'Attendance predictions');
+      return;
+    } catch (_) {
+      // Fall back to the local heuristic model when the ML service is offline.
+    }
 
     const predictions: Array<{ date: string; mealSlot: MealSlot; predictedCount: number; scenario: string }> = [];
 

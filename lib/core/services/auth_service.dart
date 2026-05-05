@@ -8,6 +8,29 @@ class AuthService {
   AuthService._();
   static final AuthService instance = AuthService._();
 
+  // ── Direct login ─────────────────────────────────────────────────────────
+  Future<UserModel> login(String email, String role) async {
+    final data = await api.post(kLogin, body: {
+      'email': email,
+      'role': role,
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('access_token', data['accessToken'] as String);
+    await prefs.setString('refresh_token', data['refreshToken'] as String);
+
+    final user = await getMe();
+    await prefs.setString('current_user', jsonEncode({
+      'id': user.id,
+      'email': user.email,
+      'name': user.name,
+      'role': user.role,
+      'rollNumber': user.rollNumber,
+      'photoUrl': user.photoUrl,
+      'rewardPoints': user.rewardPoints,
+    }));
+    return user;
+  }
+
   // ── Request OTP ──────────────────────────────────────────────────────────
   Future<void> requestOtp(String email) async {
     await api.post(kRequestOtp, body: {'email': email});

@@ -20,6 +20,7 @@ import feedbackRoutes     from './modules/feedback/feedback.routes';
 import inventoryRoutes    from './modules/inventory/inventory.routes';
 import notificationsRoutes from './modules/notifications/notifications.routes';
 import analyticsRoutes    from './modules/analytics/analytics.routes';
+import optimizationRoutes from './modules/optimization/optimization.routes';
 
 const app = express();
 
@@ -51,6 +52,7 @@ app.use('/api/feedback',      feedbackRoutes);
 app.use('/api/inventory',     inventoryRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/analytics',     analyticsRoutes);
+app.use('/api/optimization',   optimizationRoutes);
 
 // ── 404 Handler ───────────────────────────────────────────────────────────────
 app.use((_req, res) => {

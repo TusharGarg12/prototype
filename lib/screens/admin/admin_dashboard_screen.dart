@@ -4,6 +4,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../components/glass_card.dart';
 import '../../components/status_pill.dart';
 import '../../components/global_glass_scaffold.dart';
+import '../../core/services/optimization_service.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -15,6 +16,8 @@ class AdminDashboardScreen extends StatefulWidget {
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   bool _showMobileMenu = false;
   bool _showLogoutConfirm = false;
+  bool _isLoadingSurgeInsight = true;
+  Map<String, dynamic>? _surgeInsight;
 
   final List<Map<String, dynamic>> _kpis = [
     { 'label': 'Active Students', 'value': '1,248', 'delta': '+12%', 'trend': 'up' },
@@ -43,8 +46,55 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _loadSurgeInsight();
+  }
+
+  Future<void> _loadSurgeInsight() async {
+    try {
+      final plan = await optimizationService.getSurgeRecommendation(
+        date: _formatDate(DateTime.now()),
+        mealSlot: _currentMealSlot(),
+        totalStudents: 600,
+        totalCapacity: 600,
+      );
+      if (!mounted) return;
+      setState(() {
+        _surgeInsight = plan;
+        _isLoadingSurgeInsight = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isLoadingSurgeInsight = false);
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    final y = date.year.toString().padLeft(4, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
+  String _currentMealSlot() {
+    final hour = DateTime.now().hour;
+    if (hour < 11) return 'BREAKFAST';
+    if (hour < 16) return 'LUNCH';
+    if (hour < 18) return 'SNACKS';
+    return 'DINNER';
+  }
+
+  @override
   Widget build(BuildContext context) {
     int maxFootfall = _footfall.map((f) => f['count'] as int).reduce((a, b) => a > b ? a : b);
+    final forecast = (_surgeInsight?['forecast'] as Map<String, dynamic>?) ?? const {};
+    final recommendation = (_surgeInsight?['recommendation'] as Map<String, dynamic>?) ?? const {};
+    final occupancyPercent = (recommendation['occupancyPercent'] as num?)?.toDouble() ??
+      ((forecast['expectedHeadcount'] as num?)?.toDouble() ?? 0) / 600.0 * 100;
+    final peakWindow = occupancyPercent >= 75 ? '12:00 - 12:30 PM' : occupancyPercent >= 45 ? '12:30 - 1:00 PM' : 'Off-peak window';
+    final surgeBody = (recommendation['analysis'] as String?) ??
+      'Predicted crowd pressure will be shown here once the ML backend responds.';
 
     return GlobalGlassScaffold(
       child: Stack(
@@ -272,19 +322,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                                 children: [
                                   Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: const [
-                                      Text('Surge Alert', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFF78350F))),
+                                    children: [
+                                      const Text('Surge Alert', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFF78350F))),
                                       SizedBox(height: 4),
-                                      Text('Expected peak: 12:00 - 12:30 PM', style: TextStyle(fontSize: 12, color: Color(0xFFB45309))),
+                                      Text('Expected peak: $peakWindow', style: const TextStyle(fontSize: 12, color: Color(0xFFB45309))),
                                     ],
                                   ),
-                                  const StatusPill(text: '12:15 PM', variant: StatusVariant.warning),
+                                  StatusPill(text: _isLoadingSurgeInsight ? 'Loading' : peakWindow, variant: StatusVariant.warning),
                                 ],
                               ),
                               const SizedBox(height: 12),
-                              const Text(
-                                'Predicted 200+ students during lunch rush. Consider activating surge incentives.',
-                                style: TextStyle(fontSize: 12, color: Color(0xFFB45309)),
+                              Text(
+                                _isLoadingSurgeInsight ? 'Loading live surge recommendation from the ML backend...' : surgeBody,
+                                style: const TextStyle(fontSize: 12, color: Color(0xFFB45309)),
                               ),
                               const SizedBox(height: 12),
                               Row(

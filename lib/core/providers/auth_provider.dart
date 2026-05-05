@@ -16,6 +16,22 @@ class AuthProvider extends ChangeNotifier {
   bool get loading      => _loading;
   bool get isLoggedIn   => _state == AuthState.authenticated;
 
+  Future<bool> login(String email, String role) async {
+    _setLoading(true);
+    try {
+      _user = await authService.login(email, role);
+      _state = AuthState.authenticated;
+      _clearError();
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _setError(_friendlyError(e));
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
   // ── Restore session on app start ─────────────────────────────────────────
   Future<void> restoreSession() async {
     final stored = await authService.getStoredUser();
@@ -87,7 +103,7 @@ class AuthProvider extends ChangeNotifier {
   String _friendlyError(Object e) {
     final msg = e.toString();
     if (msg.contains('404') || msg.contains('not found')) return 'User not found. Please check your email.';
-    if (msg.contains('401') || msg.contains('Invalid')) return 'Invalid OTP. Please try again.';
+    if (msg.contains('401') || msg.contains('Invalid')) return 'Login failed. Please try again.';
     if (msg.contains('SocketException') || msg.contains('connection')) return 'Cannot reach server. Check your connection.';
     return 'Something went wrong. Please try again.';
   }

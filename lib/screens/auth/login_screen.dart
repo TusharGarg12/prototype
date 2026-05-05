@@ -21,7 +21,7 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  Future<void> _handleSendOtp() async {
+  Future<void> _handleLogin() async {
     final email = _emailController.text.trim();
     if (email.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -31,15 +31,21 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     final auth = context.read<AuthProvider>();
-    final ok = await auth.requestOtp(email);
+    final ok = await auth.login(email, _selectedRole);
 
     if (!mounted) return;
 
     if (ok) {
-      context.push('/otp?email=${Uri.encodeComponent(email)}&role=$_selectedRole');
+      if (_selectedRole == 'admin') {
+        context.go('/admin');
+      } else if (_selectedRole == 'kitchen') {
+        context.go('/kitchen?role=kitchen');
+      } else {
+        context.go('/dashboard');
+      }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(auth.error ?? 'Failed to send OTP'), backgroundColor: Colors.redAccent),
+        SnackBar(content: Text(auth.error ?? 'Login failed'), backgroundColor: Colors.redAccent),
       );
     }
   }
@@ -116,7 +122,7 @@ class _LoginScreenState extends State<LoginScreen> {
               SizedBox(
                 width: double.infinity, height: 50,
                 child: ElevatedButton(
-                  onPressed: loading ? null : _handleSendOtp,
+                  onPressed: loading ? null : _handleLogin,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white.withOpacity(0.70),
                     foregroundColor: const Color(0xFF1D4ED8),
@@ -128,7 +134,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   child: loading
                       ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Text('Send OTP', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                      : const Text('Sign In', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                 ),
               ),
 

@@ -23,7 +23,6 @@ import '../screens/admin/leave_approval_screen.dart';
 
 import '../screens/auth/splash_screen.dart';
 import '../screens/auth/login_screen.dart';
-import '../screens/auth/otp_verification_screen.dart';
 
 class DummyScreen extends StatelessWidget {
   final String title;
@@ -52,7 +51,6 @@ final GoRouter appRouter = GoRouter(
   redirect: (context, state) {
     final auth = context.read<AuthProvider>();
     final isLoggingIn = state.matchedLocation.startsWith('/login') ||
-        state.matchedLocation.startsWith('/otp') ||
         state.matchedLocation.startsWith('/splash');
 
     if (auth.state == AuthState.unauthenticated && !isLoggingIn) {
@@ -71,15 +69,6 @@ final GoRouter appRouter = GoRouter(
       path: '/login',
       builder: (context, state) => const LoginScreen(),
     ),
-    GoRoute(
-      path: '/otp',
-      builder: (context, state) {
-        final email = state.uri.queryParameters['email'] ?? '';
-        final role  = state.uri.queryParameters['role']  ?? 'student';
-        return OTPVerificationScreen(email: email, role: role);
-      },
-    ),
-
     // --- STUDENT FLOW ---
     GoRoute(
       path: '/dashboard',

@@ -7,6 +7,7 @@ import '../../components/global_glass_scaffold.dart';
 import '../../core/models/menu_model.dart';
 import '../../core/services/dish_service.dart';
 import '../../core/services/menu_service.dart';
+import '../../core/services/optimization_service.dart';
 
 class MenuManagementScreen extends StatefulWidget {
   const MenuManagementScreen({super.key});
@@ -18,11 +19,16 @@ class MenuManagementScreen extends StatefulWidget {
 class _MenuManagementScreenState extends State<MenuManagementScreen> {
   final List<String> _mealSlots = ['BREAKFAST', 'LUNCH', 'SNACKS', 'DINNER'];
   final List<DateTime> _days = [];
+  final DishService _dishService = dishService;
+  final MenuService _menuService = menuService;
+  final OptimizationService _optimizationService = optimizationService;
   DateTime? _selectedDay;
   bool _isLoading = true;
   bool _isSaving = false;
   List<DishModel> _dishes = [];
   final Map<String, Map<String, MenuModel>> _menusByDate = {};
+  bool _isLoadingGuidance = true;
+  Map<String, dynamic>? _menuGuidance;
 
   @override
   void initState() {
@@ -68,8 +74,9 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      _dishes = await dishService.listDishes();
+      _dishes = await _dishService.listDishes();
       await Future.wait(_days.map(_fetchMenusForDate));
+      await _refreshGuidance();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -81,8 +88,36 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
     }
   }
 
+  Future<void> _refreshGuidance() async {
+    final selectedDay = _selectedDay ?? (_days.isNotEmpty ? _days.first : null);
+    if (selectedDay == null) return;
+
+    final menu = _menuFor(selectedDay, 'LUNCH');
+    final menuItems = menu?.dishes.map((dish) => dish.name).toList() ?? <String>[];
+
+    setState(() => _isLoadingGuidance = true);
+    try {
+      final guidance = await _optimizationService.getMenuGuidance(
+        date: _dateKey(selectedDay),
+        mealSlot: 'LUNCH',
+        menuItems: menuItems.isEmpty ? ['Rice', 'Dal', 'Vegetables'] : menuItems,
+        branchName: 'Main Mess',
+      );
+      if (!mounted) return;
+      setState(() {
+        _menuGuidance = guidance;
+        _isLoadingGuidance = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingGuidance = false;
+      });
+    }
+  }
+
   Future<void> _fetchMenusForDate(DateTime date) async {
-    final menus = await menuService.queryMenus(date: _dateKey(date));
+    final menus = await _menuService.queryMenus(date: _dateKey(date));
     final map = <String, MenuModel>{};
     for (final menu in menus) {
       map[menu.mealSlot] = menu;
@@ -205,13 +240,13 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
     setState(() => _isSaving = true);
     try {
       final MenuModel updated = menu == null
-          ? await menuService.createMenu(
+          ? await _menuService.createMenu(
               menuDate: date,
               mealSlot: mealSlot,
               dishIds: result.toList(),
               isPublished: false,
             )
-          : await menuService.updateMenu(
+          : await _menuService.updateMenu(
               id: menu.id,
               dishIds: result.toList(),
             );
@@ -219,6 +254,7 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
       final key = _dateKey(date);
       _menusByDate.putIfAbsent(key, () => <String, MenuModel>{});
       _menusByDate[key]![mealSlot] = updated;
+      await _refreshGuidance();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to save menu: $e')),
@@ -250,11 +286,12 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
     setState(() => _isSaving = true);
     try {
       for (final menu in toPublish) {
-        final updated = await menuService.updateMenu(id: menu.id, isPublished: true);
+        final updated = await _menuService.updateMenu(id: menu.id, isPublished: true);
         final key = _dateKey(menu.menuDate);
         _menusByDate.putIfAbsent(key, () => <String, MenuModel>{});
         _menusByDate[key]![menu.mealSlot] = updated;
       }
+      await _refreshGuidance();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Menus published successfully.')),
@@ -273,6 +310,15 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final headline = (_menuGuidance?['guidance'] as Map<String, dynamic>?)?['headline'] as String?;
+    final reason = (_menuGuidance?['guidance'] as Map<String, dynamic>?)?['reason'] as String?;
+    final suggestedItems = ((_menuGuidance?['guidance'] as Map<String, dynamic>?)?['recommendedMenuItems'] as List<dynamic>?) ?? const [];
+    final avoidItems = ((_menuGuidance?['guidance'] as Map<String, dynamic>?)?['avoidItems'] as List<dynamic>?) ?? const [];
+    final leftoverRouting = ((_menuGuidance?['guidance'] as Map<String, dynamic>?)?['leftoverRouting'] as List<dynamic>?) ?? const [];
+    final ingredientFatigue = ((_menuGuidance?['guidance'] as Map<String, dynamic>?)?['ingredientFatigue'] as List<dynamic>?) ?? const [];
+    final healthTips = ((_menuGuidance?['guidance'] as Map<String, dynamic>?)?['healthTips'] as List<dynamic>?) ?? const [];
+    final sustainability = (_menuGuidance?['guidance'] as Map<String, dynamic>?)?['sustainability'] as Map<String, dynamic>?;
+
     return GlobalGlassScaffold(
       child: SafeArea(
         child: Column(
@@ -335,12 +381,51 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('AI Suggestion', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF581C87))),
+                              Text('AI Suggestion', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: const Color(0xFF581C87).withOpacity(_isLoadingGuidance ? 0.8 : 1))),
                               const SizedBox(height: 4),
-                              const Text('Weather forecast: 38°C. Consider lighter meals and cold beverages for Thursday.', style: TextStyle(fontSize: 12, color: Color(0xFF6B21A8))),
+                              Text(
+                                _isLoadingGuidance
+                                    ? 'Loading live menu guidance...'
+                                    : (headline ?? 'Today\'s menu guidance is ready.'),
+                                style: const TextStyle(fontSize: 12, color: Color(0xFF6B21A8)),
+                              ),
+                              if (!_isLoadingGuidance && reason != null) ...[
+                                const SizedBox(height: 4),
+                                Text(reason, style: const TextStyle(fontSize: 11, color: Color(0xFF7E22CE))),
+                              ],
+                              if (!_isLoadingGuidance && suggestedItems.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: suggestedItems.take(3).map((item) {
+                                    return StatusPill(text: item as String, variant: StatusVariant.success);
+                                  }).toList(),
+                                ),
+                              ],
+                              if (!_isLoadingGuidance && avoidItems.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Text('Avoid: ${avoidItems.join(', ')}', style: const TextStyle(fontSize: 11, color: Color(0xFF7E22CE))),
+                              ],
+                              if (!_isLoadingGuidance && leftoverRouting.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Text('Leftover routing: ${leftoverRouting.first as String}', style: const TextStyle(fontSize: 11, color: Color(0xFF7E22CE))),
+                              ],
+                              if (!_isLoadingGuidance && ingredientFatigue.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Text('Ingredient fatigue: ${ingredientFatigue.join(' · ')}', style: const TextStyle(fontSize: 11, color: Color(0xFF7E22CE))),
+                              ],
+                              if (!_isLoadingGuidance && healthTips.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Text('Health tip: ${healthTips.first as String}', style: const TextStyle(fontSize: 11, color: Color(0xFF7E22CE))),
+                              ],
+                              if (!_isLoadingGuidance && sustainability != null) ...[
+                                const SizedBox(height: 8),
+                                Text('Waste est.: ${((sustainability['estimatedWasteKg'] as num?)?.toDouble() ?? 0).toStringAsFixed(1)} kg', style: const TextStyle(fontSize: 11, color: Color(0xFF7E22CE))),
+                              ],
                               const SizedBox(height: 12),
                               GestureDetector(
-                                onTap: () {},
+                                onTap: _isLoadingGuidance ? null : () => _refreshGuidance(),
                                 child: const Text('Apply Suggestion →', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF7E22CE))),
                               ),
                             ],
@@ -376,7 +461,10 @@ class _MenuManagementScreenState extends State<MenuManagementScreen> {
                         child: Column(
                           children: [
                             InkWell(
-                              onTap: () => setState(() => _selectedDay = isSelected ? null : day),
+                              onTap: () {
+                                setState(() => _selectedDay = isSelected ? null : day);
+                                _refreshGuidance();
+                              },
                               child: Padding(
                                 padding: const EdgeInsets.all(16),
                                 child: Row(

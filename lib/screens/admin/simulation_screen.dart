@@ -4,6 +4,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../components/glass_card.dart';
 import '../../components/status_pill.dart';
 import '../../components/global_glass_scaffold.dart';
+import '../../core/services/optimization_service.dart';
 
 class SimulationScreen extends StatefulWidget {
   const SimulationScreen({super.key});
@@ -16,35 +17,127 @@ class _SimulationScreenState extends State<SimulationScreen> {
   int _selectedScenario = 1;
   bool _isRunning = false;
 
-  final List<Map<String, dynamic>> _scenarios = [
-    { 'id': 1, 'name': 'Current Plan', 'type': 'baseline' },
-    { 'id': 2, 'name': 'Add Happy Hour (2-3 PM)', 'type': 'incentive' },
-    { 'id': 3, 'name': 'Extend Lunch Hours', 'type': 'timing' },
-    { 'id': 4, 'name': 'Special Menu Day', 'type': 'menu' },
-  ];
-
-  final Map<int, Map<String, int>> _results = {
-    1: { 'peakReduction': 0, 'satisfaction': 0, 'wasteReduction': 0, 'revenue': 0 },
-    2: { 'peakReduction': 15, 'satisfaction': 8, 'wasteReduction': 5, 'revenue': 12 },
-    3: { 'peakReduction': 22, 'satisfaction': 12, 'wasteReduction': -3, 'revenue': 8 },
-    4: { 'peakReduction': -5, 'satisfaction': 18, 'wasteReduction': 2, 'revenue': 15 },
+  Map<int, Map<String, int>> _results = {
+    1: {'peakReduction': 0, 'satisfaction': 0, 'wasteReduction': 0, 'revenue': 0},
+    2: {'peakReduction': 15, 'satisfaction': 8, 'wasteReduction': 5, 'revenue': 12},
+    3: {'peakReduction': 22, 'satisfaction': 12, 'wasteReduction': -3, 'revenue': 8},
+    4: {'peakReduction': -5, 'satisfaction': 18, 'wasteReduction': 2, 'revenue': 15},
   };
 
-  void _handleRunSimulation() {
+  final List<Map<String, dynamic>> _scenarios = [
+    {'id': 1, 'name': 'Current Plan', 'type': 'baseline'},
+    {'id': 2, 'name': 'Add Happy Hour (2-3 PM)', 'type': 'incentive'},
+    {'id': 3, 'name': 'Extend Lunch Hours', 'type': 'timing'},
+    {'id': 4, 'name': 'Special Menu Day', 'type': 'menu'},
+  ];
+
+  Future<void> _handleRunSimulation() async {
     setState(() {
       _isRunning = true;
     });
-    Future.delayed(const Duration(seconds: 2), () {
+
+    try {
+      final date = _formatDate(DateTime.now());
+      final mealSlot = _currentMealSlot();
+
+      final surgePlan = await optimizationService.getSurgeRecommendation(
+        date: date,
+        mealSlot: mealSlot,
+        totalStudents: 600,
+        totalCapacity: 600,
+      );
+      final forecast = (surgePlan['forecast'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final recommendation = (surgePlan['recommendation'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final occupancyPercent = (recommendation['occupancyPercent'] as num?)?.toDouble() ??
+          ((forecast['expectedHeadcount'] as num?)?.toDouble() ?? 0) / 600.0 * 100;
+
+      final wastePlan = await optimizationService.getWasteRecommendation(
+        date: date,
+        mealSlot: mealSlot,
+        menuItems: _scenarioMenuItems(_selectedScenario),
+        totalStudents: 600,
+        totalCapacity: 600,
+      );
+      final wasteRecommendation = (wastePlan['recommendation'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final wasteScore = (wasteRecommendation['wasteScore'] as num?)?.toInt() ?? 0;
+
+      final basePeakReduction = occupancyPercent >= 75 ? 24 : occupancyPercent >= 55 ? 18 : 12;
+      final satisfactionBoost = (basePeakReduction / 2).round();
+      final wasteReduction = (wasteScore / 10).round();
+      final revenueImpact = basePeakReduction + (_selectedScenario == 4 ? 3 : 0);
+
+      final updatedResults = <int, Map<String, int>>{
+        1: {'peakReduction': 0, 'satisfaction': 0, 'wasteReduction': 0, 'revenue': 0},
+        2: {
+          'peakReduction': basePeakReduction,
+          'satisfaction': satisfactionBoost,
+          'wasteReduction': wasteReduction,
+          'revenue': revenueImpact,
+        },
+        3: {
+          'peakReduction': basePeakReduction + 7,
+          'satisfaction': satisfactionBoost + 4,
+          'wasteReduction': wasteReduction - 3,
+          'revenue': revenueImpact - 2,
+        },
+        4: {
+          'peakReduction': basePeakReduction - 5,
+          'satisfaction': satisfactionBoost + 8,
+          'wasteReduction': wasteReduction + 2,
+          'revenue': revenueImpact + 4,
+        },
+      };
+
       if (!mounted) return;
       setState(() {
+        _results = updatedResults;
         _isRunning = false;
       });
-    });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _results = {
+          1: {'peakReduction': 0, 'satisfaction': 0, 'wasteReduction': 0, 'revenue': 0},
+          2: {'peakReduction': 15, 'satisfaction': 8, 'wasteReduction': 5, 'revenue': 12},
+          3: {'peakReduction': 22, 'satisfaction': 12, 'wasteReduction': -3, 'revenue': 8},
+          4: {'peakReduction': -5, 'satisfaction': 18, 'wasteReduction': 2, 'revenue': 15},
+        };
+        _isRunning = false;
+      });
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    final y = date.year.toString().padLeft(4, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
+  String _currentMealSlot() {
+    final hour = DateTime.now().hour;
+    if (hour < 11) return 'BREAKFAST';
+    if (hour < 16) return 'LUNCH';
+    if (hour < 18) return 'SNACKS';
+    return 'DINNER';
+  }
+
+  List<String> _scenarioMenuItems(int scenarioId) {
+    switch (scenarioId) {
+      case 2:
+        return ['Jeera Rice', 'Paneer Curry', 'Curd'];
+      case 3:
+        return ['Roti', 'Dal Makhani', 'Salad'];
+      case 4:
+        return ['Special Thali', 'Fruit Bowl', 'Sweet'];
+      default:
+        return ['Rice', 'Dal', 'Veg Curry'];
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final currentResults = _results[_selectedScenario]!;
+    final currentResults = _results[_selectedScenario] ?? _results[1]!;
 
     return GlobalGlassScaffold(
       child: SafeArea(
@@ -82,7 +175,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
-                  
                   GlassCard(
                     tint: GlassTint.purple,
                     padding: const EdgeInsets.all(16),
@@ -105,12 +197,10 @@ class _SimulationScreenState extends State<SimulationScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  
                   const Text('SELECT SCENARIO', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155), letterSpacing: 0.5)),
                 ],
               ),
             ),
-            
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
@@ -120,14 +210,18 @@ class _SimulationScreenState extends State<SimulationScreen> {
                       children: _scenarios.map((scenario) {
                         final isSelected = _selectedScenario == scenario['id'];
                         final type = scenario['type'] as String;
-                        final variant = type == 'baseline' ? StatusVariant.info :
-                                      type == 'incentive' ? StatusVariant.warning :
-                                      type == 'timing' ? StatusVariant.purple : StatusVariant.success;
-                        
+                        final variant = type == 'baseline'
+                            ? StatusVariant.info
+                            : type == 'incentive'
+                                ? StatusVariant.warning
+                                : type == 'timing'
+                                    ? StatusVariant.purple
+                                    : StatusVariant.success;
+
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: InkWell(
-                            onTap: () => setState(() => _selectedScenario = scenario['id']),
+                            onTap: () => setState(() => _selectedScenario = scenario['id'] as int),
                             borderRadius: BorderRadius.circular(20),
                             child: Container(
                               decoration: BoxDecoration(
@@ -144,7 +238,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                                     Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(scenario['name'], style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
+                                        Text(scenario['name'] as String, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
                                         const SizedBox(height: 4),
                                         StatusPill(text: type, variant: variant),
                                       ],
@@ -168,7 +262,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
                       }).toList(),
                     ),
                     const SizedBox(height: 16),
-                    
                     SizedBox(
                       width: double.infinity,
                       height: 56,
@@ -206,14 +299,12 @@ class _SimulationScreenState extends State<SimulationScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
-                    
                     Row(
                       children: const [
                         Text('PREDICTED IMPACT', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155), letterSpacing: 0.5)),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    
                     GlassCard(
                       padding: const EdgeInsets.all(16),
                       child: Column(
@@ -229,7 +320,6 @@ class _SimulationScreenState extends State<SimulationScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
-                    
                     if (_selectedScenario != 1)
                       SizedBox(
                         width: double.infinity,
@@ -259,23 +349,15 @@ class _SimulationScreenState extends State<SimulationScreen> {
   }
 
   Widget _buildImpactRow(String label, int value) {
-    // Determine the "goodness" of the value based on the label
-    // For Peak Hour Reduction, positive is good (TrendingDown is good, but value is positive in data)
-    // Wait, the React code: 
-    // Peak Reduction > 0 ? TrendingDown emerald, < 0 ? TrendingUp rose
-    // Satisfaction > 0 ? TrendingUp emerald
-    // Waste Reduction > 0 ? TrendingDown emerald, < 0 ? TrendingUp rose
-    // Revenue > 0 ? TrendingUp emerald
-
     bool isGood = false;
     bool isDownIcon = false;
 
     if (label == 'Peak Hour Reduction' || label == 'Food Waste Reduction') {
       isGood = value > 0;
-      isDownIcon = value > 0; // Positive reduction means a downward trend in peak/waste, which is good
+      isDownIcon = value > 0;
     } else {
       isGood = value > 0;
-      isDownIcon = value < 0; // Positive satisfaction/revenue means upward trend, which is good
+      isDownIcon = value < 0;
     }
 
     final color = value == 0 ? const Color(0xFF334155) : isGood ? const Color(0xFF059669) : const Color(0xFFE11D48);

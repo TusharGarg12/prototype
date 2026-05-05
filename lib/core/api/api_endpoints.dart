@@ -3,6 +3,7 @@
 const String kBaseUrl = 'http://localhost:3000/api';
 
 // ── Auth ───────────────────────────────────────────────────────────────────────
+const String kLogin         = '/auth/login';
 const String kRequestOtp    = '/auth/request-otp';
 const String kVerifyOtp     = '/auth/verify-otp';
 const String kRefreshToken  = '/auth/refresh';
@@ -42,3 +43,11 @@ const String kNotifications = '/notifications';
 // ── Analytics ──────────────────────────────────────────────────────────
 const String kAnalyticsHeatmap = '/analytics/heatmap';
 const String kAnalyticsPredictions = '/analytics/predictions';
+
+// ── Optimization ───────────────────────────────────────────────────────
+const String kOptimizationSurge = '/optimization/surge';
+const String kOptimizationWaste = '/optimization/waste';
+const String kOptimizationMenuGuidance = '/optimization/menu-guidance';
+
+// ── Chatbot ─────────────────────────────────────────────────────────────
+const String kChatbotAsk = '/chatbot/ask';

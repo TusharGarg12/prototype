@@ -5,6 +5,8 @@ import '../../components/glass_card.dart';
 import '../../components/status_pill.dart';
 import '../../components/global_glass_scaffold.dart';
 import '../../core/services/analytics_service.dart';
+import '../../core/services/menu_service.dart';
+import '../../core/services/optimization_service.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -16,10 +18,15 @@ class AnalyticsScreen extends StatefulWidget {
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   bool _isLoading = true;
   bool _isLoadingHeatmap = true;
+  final AnalyticsService _analyticsService = analyticsService;
+  final MenuService _menuService = menuService;
+  final OptimizationService _optimizationService = optimizationService;
   List<Map<String, dynamic>> _heatmapData = [];
   List<Map<String, dynamic>> _weeklyData = [];
   List<Map<String, dynamic>> _ratingSummary = [];
   List<Map<String, dynamic>> _predictions = [];
+  Map<String, dynamic>? _wasteRecommendation;
+  Map<String, dynamic>? _menuGuidance;
   int _totalMeals = 0;
   double? _avgRating;
   final List<DateTime> _days = [];
@@ -81,7 +88,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final todayKey = _dateKey(DateTime.now());
 
     try {
-      final heatmap = await analyticsService.getHeatmap(date: todayKey);
+      final heatmap = await _analyticsService.getHeatmap(date: todayKey);
       if (mounted) {
         setState(() {
           _heatmapData = heatmap;
@@ -99,7 +106,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       int totalMeals = 0;
 
       for (final date in _days) {
-        final summary = await analyticsService.getFootfallSummary(date: _dateKey(date));
+        final summary = await _analyticsService.getFootfallSummary(date: _dateKey(date));
         final counts = {
           'BREAKFAST': 0,
           'LUNCH': 0,
@@ -122,8 +129,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         });
       }
 
-      final ratings = await analyticsService.getRatingSummary(date: todayKey);
-      final predictions = await analyticsService.getPredictions(days: 7, start: todayKey);
+      final ratings = await _analyticsService.getRatingSummary(date: todayKey);
+      final predictions = await _analyticsService.getPredictions(days: 7, start: todayKey);
       double totalRating = 0;
       int ratingCount = 0;
       for (final item in ratings) {
@@ -135,6 +142,22 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         }
       }
 
+      final todayMenus = await _menuService.getTodayMenu();
+      final menuItems = todayMenus.expand((menu) => menu.dishes).map((dish) => dish.name).toList();
+      final wastePlan = await _optimizationService.getWasteRecommendation(
+        date: todayKey,
+        mealSlot: 'LUNCH',
+        menuItems: menuItems.isEmpty ? ['Rice', 'Dal', 'Vegetables'] : menuItems,
+        totalStudents: _totalMeals > 0 ? _totalMeals : 600,
+        totalCapacity: 600,
+      );
+      final guidancePlan = await _optimizationService.getMenuGuidance(
+        date: todayKey,
+        mealSlot: 'LUNCH',
+        menuItems: menuItems.isEmpty ? ['Rice', 'Dal', 'Vegetables'] : menuItems,
+        branchName: 'Main Mess',
+      );
+
       if (mounted) {
         setState(() {
           _weeklyData = weeklyData;
@@ -142,6 +165,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           _ratingSummary = ratings;
           _predictions = predictions;
           _avgRating = ratingCount > 0 ? totalRating / ratingCount : null;
+          _wasteRecommendation = (wastePlan['recommendation'] as Map<String, dynamic>?) ?? wastePlan;
+          _menuGuidance = (guidancePlan['guidance'] as Map<String, dynamic>?) ?? guidancePlan;
           _isLoading = false;
         });
       }
@@ -158,6 +183,18 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       : _weeklyData
           .expand((d) => [d['breakfast'] as int, d['lunch'] as int, d['dinner'] as int])
           .reduce((a, b) => a > b ? a : b);
+    final menuGuidance = (_menuGuidance ?? const <String, dynamic>{});
+    final sustainability = menuGuidance['sustainability'] as Map<String, dynamic>?;
+    final wasteRecommendation = _wasteRecommendation ?? const <String, dynamic>{};
+    final estimatedWasteKg = (sustainability?['estimatedWasteKg'] as num?)?.toDouble() ?? (wasteRecommendation['estimatedWasteKg'] as num?)?.toDouble() ?? 0;
+    final foodSavedKg = (sustainability?['foodSavedKg'] as num?)?.toDouble() ?? (_totalMeals / 100.0);
+    final carbonSavedKg = (sustainability?['carbonSavedKg'] as num?)?.toDouble() ?? estimatedWasteKg * 2.2;
+    final leftoverRouting = (menuGuidance['leftoverRouting'] as List<dynamic>?) ?? const [];
+    final ingredientFatigue = (menuGuidance['ingredientFatigue'] as List<dynamic>?) ?? const [];
+    final healthTips = (menuGuidance['healthTips'] as List<dynamic>?) ?? const [];
+    final recommendedMenuItems = (menuGuidance['recommendedMenuItems'] as List<dynamic>?) ?? const [];
+    final guidanceHeadline = menuGuidance['headline'] as String?;
+    final guidanceReason = menuGuidance['reason'] as String?;
 
     return GlobalGlassScaffold(
       child: SafeArea(
@@ -503,9 +540,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         children: [
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: const [
-                              Text('Sustainability Metrics', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF064E3B))),
-                              StatusPill(text: 'This Week', variant: StatusVariant.success),
+                            children: [
+                              const Text('Sustainability Metrics', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF064E3B))),
+                              StatusPill(text: _menuGuidance == null ? 'Loading' : 'Live', variant: StatusVariant.success),
                             ],
                           ),
                           const SizedBox(height: 16),
@@ -514,25 +551,74 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: const [
-                                    Text('Food Saved', style: TextStyle(fontSize: 12, color: Color(0xFF065F46))),
+                                  children: [
+                                    const Text('Food Saved', style: TextStyle(fontSize: 12, color: Color(0xFF065F46))),
                                     SizedBox(height: 4),
-                                    Text('12.4 kg', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w300, color: Color(0xFF064E3B))),
+                                    Text('${foodSavedKg.toStringAsFixed(1)} kg', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w300, color: Color(0xFF064E3B))),
                                   ],
                                 ),
                               ),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: const [
-                                    Text('CO2 Avoided', style: TextStyle(fontSize: 12, color: Color(0xFF065F46))),
+                                  children: [
+                                    const Text('CO2 Avoided', style: TextStyle(fontSize: 12, color: Color(0xFF065F46))),
                                     SizedBox(height: 4),
-                                    Text('6.2 kg', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w300, color: Color(0xFF064E3B))),
+                                    Text('${carbonSavedKg.toStringAsFixed(1)} kg', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w300, color: Color(0xFF064E3B))),
                                   ],
                                 ),
                               ),
                             ],
                           ),
+                          const SizedBox(height: 12),
+                          Text(
+                            _menuGuidance == null
+                                ? 'Loading waste and sustainability insights...'
+                                : 'Estimated waste: ${estimatedWasteKg.toStringAsFixed(1)} kg',
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF065F46)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    GlassCard(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Planning Insights', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
+                          const SizedBox(height: 12),
+                          Text(
+                            guidanceHeadline ?? 'Live menu guidance will appear here once loaded.',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                          ),
+                          if (guidanceReason != null) ...[
+                            const SizedBox(height: 6),
+                            Text(guidanceReason, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                          ],
+                          if (recommendedMenuItems.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: recommendedMenuItems.take(4).map((item) {
+                                return StatusPill(text: item as String, variant: StatusVariant.info);
+                              }).toList(),
+                            ),
+                          ],
+                          if (leftoverRouting.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Text('Leftover routing: ${leftoverRouting.first as String}', style: const TextStyle(fontSize: 11, color: Color(0xFF475569))),
+                          ],
+                          if (ingredientFatigue.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Text('Ingredient fatigue: ${ingredientFatigue.join(' · ')}', style: const TextStyle(fontSize: 11, color: Color(0xFF475569))),
+                          ],
+                          if (healthTips.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Text('Health tip: ${healthTips.first as String}', style: const TextStyle(fontSize: 11, color: Color(0xFF475569))),
+                          ],
                         ],
                       ),
                     ),

@@ -1,7 +1,15 @@
 import { Request, Response, NextFunction } from 'express';
 import * as AuthService from './auth.service';
-import { RequestOtpSchema, VerifyOtpSchema, RefreshTokenSchema } from './auth.schema';
+import { LoginSchema, RequestOtpSchema, VerifyOtpSchema, RefreshTokenSchema } from './auth.schema';
 import { ok, created } from '../../utils/apiResponse';
+
+export const login = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { email, role } = LoginSchema.parse(req.body);
+    const result = await AuthService.login(email, role);
+    created(res, result, 'Login successful');
+  } catch (e) { next(e); }
+};
 
 export const requestOtp = async (req: Request, res: Response, next: NextFunction) => {
   try {

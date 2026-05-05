@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'glass_card.dart';
+import '../core/services/chatbot_service.dart';
 
 class ChatbotOverlay extends StatefulWidget {
   final VoidCallback onClose;
@@ -23,6 +24,7 @@ class _ChatbotOverlayState extends State<ChatbotOverlay> {
 
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  bool _isSending = false;
 
   void _scrollToBottom() {
     if (_scrollController.hasClients) {
@@ -34,7 +36,15 @@ class _ChatbotOverlayState extends State<ChatbotOverlay> {
     }
   }
 
-  void _handleSend([String? actionText]) {
+  @override
+  void dispose() {
+    _inputController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleSend([String? actionText]) async {
+    if (_isSending) return;
     final text = actionText ?? _inputController.text;
     if (text.trim().isEmpty) return;
 
@@ -45,11 +55,24 @@ class _ChatbotOverlayState extends State<ChatbotOverlay> {
         'text': text,
       });
       _inputController.clear();
+      _isSending = true;
     });
-    
-    Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
 
-    Future.delayed(const Duration(milliseconds: 800), () {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
+    try {
+      final reply = await chatbotService.ask(text);
+      if (!mounted) return;
+      setState(() {
+        _messages.add({
+          'id': _messages.length + 2,
+          'type': 'bot',
+          'text': reply,
+          'quickActions': ["Anything else?", "Check menu", "Done"],
+        });
+        _isSending = false;
+      });
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _messages.add({
@@ -58,9 +81,11 @@ class _ChatbotOverlayState extends State<ChatbotOverlay> {
           'text': _getBotResponse(text),
           'quickActions': ["Anything else?", "Check menu", "Done"],
         });
+        _isSending = false;
       });
-      Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
-    });
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
   }
 
   String _getBotResponse(String userInput) {
@@ -291,7 +316,7 @@ class _ChatbotOverlayState extends State<ChatbotOverlay> {
                                 color: Colors.transparent,
                                 child: InkWell(
                                   borderRadius: BorderRadius.circular(18),
-                                  onTap: () => _handleSend(),
+                                      onTap: _isSending ? null : () => _handleSend(),
                                   child: const Icon(LucideIcons.send, size: 16, color: Color(0xFF1D4ED8)),
                                 ),
                               ),

@@ -7,6 +7,9 @@ const router = Router();
 // POST /api/auth/request-otp
 router.post('/request-otp', AuthController.requestOtp);
 
+// POST /api/auth/login
+router.post('/login', AuthController.login);
+
 // POST /api/auth/verify-otp
 router.post('/verify-otp', AuthController.verifyOtp);
 
