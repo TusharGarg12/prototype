@@ -151,14 +151,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       }
     }
   }
-
   @override
   Widget build(BuildContext context) {
     final maxValue = _weeklyData.isEmpty
       ? 1
       : _weeklyData
-        .expand((d) => [d['breakfast'] as int, d['lunch'] as int, d['dinner'] as int])
-        .reduce((a, b) => a > b ? a : b);
+          .expand((d) => [d['breakfast'] as int, d['lunch'] as int, d['dinner'] as int])
+          .reduce((a, b) => a > b ? a : b);
 
     return GlobalGlassScaffold(
       child: SafeArea(
@@ -220,7 +219,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
-                  
+
                   Row(
                     children: [
                       Expanded(
@@ -296,7 +295,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ],
               ),
             ),
-            
+
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
@@ -431,62 +430,62 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                       ),
                                       Text(
                                         avg == null ? 'N/A' : avg.toStringAsFixed(1),
-                                  const SizedBox(height: 16),
-
-                                  GlassCard(
-                                    padding: const EdgeInsets.all(16),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Forecast (Next 7 Days)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
-                                        const SizedBox(height: 12),
-                                        if (_predictions.isEmpty)
-                                          const Text('No predictions available', style: TextStyle(fontSize: 12, color: Color(0xFF64748B)))
-                                        else
-                                          Column(
-                                            children: _groupPredictions(_predictions).entries.map((entry) {
-                                              final date = entry.key;
-                                              final rows = entry.value;
-                                              return Padding(
-                                                padding: const EdgeInsets.only(bottom: 12),
-                                                child: GlassCard(
-                                                  padding: const EdgeInsets.all(12),
-                                                  child: Column(
-                                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                                    children: [
-                                                      Text(date, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
-                                                      const SizedBox(height: 8),
-                                                      Column(
-                                                        children: rows.map((row) {
-                                                          return Padding(
-                                                            padding: const EdgeInsets.only(bottom: 6),
-                                                            child: Row(
-                                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                              children: [
-                                                                Text(_formatMealSlot(row['mealSlot'] as String), style: const TextStyle(fontSize: 11, color: Color(0xFF475569))),
-                                                                Text('${row['predictedCount']}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
-                                                              ],
-                                                            ),
-                                                          );
-                                                        }).toList(),
-                                                      ),
-                                                      const SizedBox(height: 6),
-                                                      Text(
-                                                        rows.first['scenario'] as String,
-                                                        style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              );
-                                            }).toList(),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
                                         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
                                       ),
                                     ],
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    GlassCard(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Forecast (Next 7 Days)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
+                          const SizedBox(height: 12),
+                          if (_predictions.isEmpty)
+                            const Text('No predictions available', style: TextStyle(fontSize: 12, color: Color(0xFF64748B)))
+                          else
+                            Column(
+                              children: _groupPredictions(_predictions).entries.map((entry) {
+                                final date = entry.key;
+                                final rows = entry.value;
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: GlassCard(
+                                    padding: const EdgeInsets.all(12),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(date, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0F172A))),
+                                        const SizedBox(height: 8),
+                                        Column(
+                                          children: rows.map((row) {
+                                            return Padding(
+                                              padding: const EdgeInsets.only(bottom: 6),
+                                              child: Row(
+                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                children: [
+                                                  Text(_formatMealSlot(row['mealSlot'] as String), style: const TextStyle(fontSize: 11, color: Color(0xFF475569))),
+                                                  Text('${row['predictedCount']}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
+                                                ],
+                                              ),
+                                            );
+                                          }).toList(),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          rows.first['scenario'] as String,
+                                          style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 );
                               }).toList(),
@@ -526,7 +525,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: const [
-                                    Text('CO₂ Avoided', style: TextStyle(fontSize: 12, color: Color(0xFF065F46))),
+                                    Text('CO2 Avoided', style: TextStyle(fontSize: 12, color: Color(0xFF065F46))),
                                     SizedBox(height: 4),
                                     Text('6.2 kg', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w300, color: Color(0xFF064E3B))),
                                   ],

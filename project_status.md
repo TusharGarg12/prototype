@@ -31,35 +31,41 @@ We have successfully built the complete backend infrastructure and wired up the 
 
 ---
 
-## 🟡 What is LEFT TO BE DONE (Phase 1: Admin & Kitchen Features)
+## 🟢 What Is NOW DONE (Phase 1: Admin, Kitchen, and Student MVP)
 
-The next immediate phase is wiring the backend to the **Admin** and **Kitchen** Flutter interfaces. The UI files exist, but they need to be connected to the API just like the student screens.
+The Phase 1 MVP is implemented across the Flutter app and backend. The remaining work is now production hardening rather than core Phase 1 feature delivery.
 
 ### 1. Admin Flutter Integration
-- **QR Scanner Screen:** 
-  - Integrate device camera to scan student QR codes.
-  - Call `/api/qr/validate` to verify the pass, mark attendance, and auto-decrement inventory.
-  - Handle success/failure UI states (e.g., Expired, Already Used, Invalid).
-- **Menu Management Screen:**
-  - Build UI to create new menus, add/remove dishes, and publish schedules for the week.
-- **Leave Approval Inbox (Missing UI/Integration):**
-  - Create a screen for admins to view pending student leaves and call API endpoints to Approve/Reject them.
-- **Analytics Dashboard:**
-  - Fetch footfall data and feedback summaries to display charts/metrics.
+- **QR Scanner Screen:** Implemented with `mobile_scanner`, counter selection, QR validation, and success/failure states.
+- **Menu Management Screen:** Implemented with day/slot editing, dish selection, save, and publish flows.
+- **Leave Approval Inbox:** Implemented with search, filter, pagination, and approve/reject actions.
+- **Analytics Dashboard:** Implemented with footfall, heatmap, ratings, predictions, and summary cards.
 
 ### 2. Kitchen Flutter Integration
-- **Kitchen Display Screen (KDS):**
-  - Fetch and display the live menu for the current meal slot.
-  - Show real-time attendance counts to help gauge food preparation speeds.
+- **Kitchen Display Screen (KDS):** Implemented with live menu fetching, active meal slot detection, and attendance-based serving indicators.
 
 ### 3. Production Readiness & Polish
 - **Email Delivery:** Replace the `console.log` mock in `auth.service.ts` with a real SMTP provider (e.g., SendGrid, Nodemailer) to actually email OTPs.
 - **PostgreSQL Switch:** Revert the Prisma provider from `sqlite` to `postgresql` and provision a live database for staging/production.
 
+## 🔴 Remaining After Phase 1
+
+These are no longer core MVP blockers; they are the next hardening and expansion steps.
+
+### 1. Production Readiness
+- SMTP-based OTP delivery.
+- PostgreSQL-backed deployment.
+
+### 2. Phase 2 And Beyond
+- Predictive analytics.
+- Surge management.
+- Crowd heatmap visualization.
+- Weather/calendar integration.
+
 ---
 
 ## ⏭️ Phase 2 & Beyond (Smart Features)
-*Once Phase 1 is fully deployed, the backlog includes:*
+*Now that Phase 1 is in place, the backlog includes:*
 - **Predictive Analytics:** Footfall prediction by time slot.
 - **Surge Management:** Reward points for eating during off-peak hours.
 - **Crowd Heatmap:** Visualizing mess congestion.
